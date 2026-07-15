@@ -62,7 +62,7 @@ def main():
     try:
         bot.app.run_polling(
             drop_pending_updates=True,
-            allowed_updates=['message'],
+            allowed_updates=['message', 'callback_query'],
         )
     except KeyboardInterrupt:
         logger.info('🛑 Shutdown requested by user')
