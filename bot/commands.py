@@ -4,7 +4,7 @@ Mustafa Bot - Telegram Bot Commands
 """
 
 import logging
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from bot.formatters import MessageFormatter
@@ -23,8 +23,15 @@ class BotCommands:
                              context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         welcome = self.formatter.format_welcome()
-        await update.message.reply_text(welcome)
+        keyboard = [
+            ['🔔 إشارة فورية', '📊 تحليل السوق'],
+            ['🔮 التوقع والارتداد', '⚙️ حالة البوت'],
+            ['📖 المساعدة']
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(welcome, reply_markup=reply_markup)
         logger.info(f'User {update.effective_user.id} started the bot')
+
 
     async def signal_command(self, update: Update,
                               context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,4 +148,26 @@ class BotCommands:
 ━━━━━━━━━━━━━━━━━━━━
 🤖 Mustafa Bot v1.0"""
 
-        await update.message.reply_text(help_text)
+        keyboard = [
+            ['🔔 إشارة فورية', '📊 تحليل السوق'],
+            ['🔮 التوقع والارتداد', '⚙️ حالة البوت'],
+            ['📖 المساعدة']
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(help_text, reply_markup=reply_markup)
+
+    async def handle_message(self, update: Update,
+                              context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle incoming text messages to route button clicks."""
+        text = update.message.text
+        if text == '🔔 إشارة فورية':
+            await self.signal_command(update, context)
+        elif text == '📊 تحليل السوق':
+            await self.analysis_command(update, context)
+        elif text == '🔮 التوقع والارتداد':
+            await self.predict_command(update, context)
+        elif text == '⚙️ حالة البوت':
+            await self.status_command(update, context)
+        elif text == '📖 المساعدة':
+            await self.help_command(update, context)
+
