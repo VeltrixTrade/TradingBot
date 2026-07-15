@@ -45,8 +45,12 @@ class MessageFormatter:
         # Reversal zones
         zones_text = ' | '.join([f'{z:.2f}' for z in signal.reversal_zones[:5]]) if signal.reversal_zones else 'غير متاح'
 
+        from datetime import datetime, timedelta
+        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
+
         msg = f"""🔔 إشارة ذهب جديدة | MUSTAFA BOT
 ━━━━━━━━━━━━━━━━━━━━
+⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
 📊 النوع: {type_text} | {dir_text} {dir_emoji}
 ⏰ الإطار الزمني: {signal.timeframe}
 ━━━━━━━━━━━━━━━━━━━━
@@ -74,14 +78,18 @@ class MessageFormatter:
 
     @staticmethod
     def format_analysis(analysis_text: str, current_price: float,
-                         trend: str) -> str:
+                          trend: str) -> str:
         """Format a market analysis message."""
         trend_map = {'BULLISH': 'صاعد 📈', 'BEARISH': 'هابط 📉', 'NEUTRAL': 'محايد ↔️'}
         trend_text = trend_map.get(trend, 'محايد ↔️')
 
+        from datetime import datetime, timedelta
+        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
+
         msg = f"""📊 تحليل سوق الذهب | MUSTAFA BOT
 ━━━━━━━━━━━━━━━━━━━━
 💰 السعر الحالي: {current_price:,.2f}
+⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
 📈 الاتجاه: {trend_text}
 ━━━━━━━━━━━━━━━━━━━━
 {analysis_text}
@@ -95,7 +103,12 @@ class MessageFormatter:
         """Format a price prediction message."""
         zones_text = '\n'.join([f'  📍 {z:,.2f}' for z in reversal_zones[:5]]) if reversal_zones else '  غير متاح'
 
+        from datetime import datetime, timedelta
+        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
+
         msg = f"""🔮 توقعات الذهب | MUSTAFA BOT
+━━━━━━━━━━━━━━━━━━━━
+⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
 ━━━━━━━━━━━━━━━━━━━━
 {prediction if prediction else 'لا يوجد توقع متاح حالياً'}
 ━━━━━━━━━━━━━━━━━━━━

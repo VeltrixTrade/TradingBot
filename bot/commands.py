@@ -136,8 +136,8 @@ class BotCommands:
                 losses = self.signal_engine.losses
                 total_trades = wins + losses
                 win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
-                from datetime import datetime
-                last_update = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+                from datetime import datetime, timedelta
+                last_update = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p بتوقيت مكة المكرمة')
             else:
                 active, total, win_rate, last_update = 0, 0, 0, 'N/A'
 
@@ -295,8 +295,8 @@ class BotCommands:
                 losses = self.signal_engine.losses
                 total_trades = wins + losses
                 win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
-                from datetime import datetime
-                last_update = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+                from datetime import datetime, timedelta
+                last_update = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p بتوقيت مكة المكرمة')
                 msg = self.formatter.format_status(active, total, win_rate, last_update)
                 await query.message.reply_text(msg)
             except Exception as e:
