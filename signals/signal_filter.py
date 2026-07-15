@@ -26,23 +26,17 @@ class SignalFilter:
             current_hour_utc = datetime.now(timezone.utc).hour
 
         if is_manual:
-            logger.info(f'⚡ Manual query: relaxing filters to find the best available setup from {len(signals)} signals')
-            # For manual queries, we bypass Trend and Kill Zone checks.
-            # We enforce AI Consensus to ensure the direction is validated by models.
-            filtered = self._filter_by_ai_consensus(signals)
-            if not filtered:
-                logger.info('  Manual: No signals passed AI consensus')
-                return []
-
-            # We relax the Risk/Reward filter to a lower threshold so more trades qualify
+            logger.info(f'⚡ Manual query: bypassing trend, kill zone, and AI consensus filters to return setup from {len(signals)} signals')
+            
+            # We relax the Risk/Reward filter to a lower threshold for manual requests
             relaxed_rr = []
-            for s in filtered:
-                min_rr = 1.2 if s.type == SignalType.SCALP else 1.8
+            for s in signals:
+                min_rr = 1.0 if s.type == SignalType.SCALP else 1.5
                 if s.risk_reward >= min_rr:
                     relaxed_rr.append(s)
 
-            # Return the best of the relaxed set, or fallback to the AI consensus set
-            best = self._select_best(relaxed_rr if relaxed_rr else filtered)
+            # Return the best of the relaxed set, or fallback to the original signals
+            best = self._select_best(relaxed_rr if relaxed_rr else signals)
             logger.info(f'📤 Manual Filter complete: {len(best)} signal(s) selected')
             return best
 
