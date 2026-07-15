@@ -304,6 +304,21 @@ class AIManager:
                 )
                 return response.choices[0].message.content
             except Exception as ex:
-                logger.error(f"OpenAI chat response failed: {ex}")
-                return "❌ عذراً، نواجه مشكلة في الاتصال بمستشار الذكاء الاصطناعي حالياً. يرجى المحاولة لاحقاً."
+                logger.error(f"OpenAI chat response failed: {ex}, trying DeepSeek fallback")
+                try:
+                    response = await asyncio.to_thread(
+                        self.deepseek.client.chat.completions.create,
+                        model=self.deepseek.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_message},
+                        ],
+                        temperature=0.7,
+                        max_tokens=1500,
+                    )
+                    return response.choices[0].message.content
+                except Exception as ex2:
+                    logger.error(f"DeepSeek chat response failed: {ex2}")
+                    return "❌ عذراً، نواجه مشكلة في الاتصال بمستشار الذكاء الاصطناعي حالياً. يرجى المحاولة لاحقاً."
+
 
