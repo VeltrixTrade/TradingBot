@@ -267,3 +267,37 @@ class AIManager:
             'prediction': '\n\n'.join(predictions),
             'reversal_zones': zones,
         }
+
+    async def get_chat_response(self, user_message: str) -> str:
+        """Get chat response from one of the AI models (Gemini as primary, ChatGPT/DeepSeek fallback)."""
+        system_prompt = (
+            "You are Mustafa Bot, an elite XAU/USD gold trading expert with 20+ years of institutional experience. "
+            "Answer the user's questions about gold trading, technical analysis, SMC/ICT strategy, market psychology, "
+            "or market predictions in Arabic. Keep your response professional, helpful, highly detailed, and concise. "
+            "Adopt the tone of a seasoned financial mentor."
+        )
+        try:
+            # Use Gemini as primary for fast response
+            response = await asyncio.to_thread(
+                self.gemini.model.generate_content,
+                f"{system_prompt}\n\nUser Question: {user_message}"
+            )
+            return response.text
+        except Exception as e:
+            logger.warning(f"Gemini chat response failed: {e}, trying ChatGPT fallback")
+            try:
+                response = await asyncio.to_thread(
+                    self.openai.client.chat.completions.create,
+                    model=self.openai.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=0.7,
+                    max_tokens=1500,
+                )
+                return response.choices[0].message.content
+            except Exception as ex:
+                logger.error(f"OpenAI chat response failed: {ex}")
+                return "❌ عذراً، نواجه مشكلة في الاتصال بمستشار الذكاء الاصطناعي حالياً. يرجى المحاولة لاحقاً."
+

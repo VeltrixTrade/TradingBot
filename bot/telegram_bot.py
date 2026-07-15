@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from config import Config
 from bot.commands import BotCommands
@@ -243,15 +243,20 @@ class MustafaBot:
 
         # Add command handlers
         self.app.add_handler(CommandHandler('start', self.commands.start_command))
+        self.app.add_handler(CommandHandler('cancel', self.commands.cancel_command))
         self.app.add_handler(CommandHandler('signal', self.commands.signal_command))
         self.app.add_handler(CommandHandler('analysis', self.commands.analysis_command))
         self.app.add_handler(CommandHandler('predict', self.commands.predict_command))
         self.app.add_handler(CommandHandler('status', self.commands.status_command))
         self.app.add_handler(CommandHandler('help', self.commands.help_command))
 
-        # Add text message handler for custom keyboard buttons
+        # Add text message handler for custom keyboard buttons and AI chat
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.commands.handle_message))
 
+        # Add inline button callback handler
+        self.app.add_handler(CallbackQueryHandler(self.commands.handle_callback))
+
         logger.info('✅ Bot handlers configured')
+
 
 

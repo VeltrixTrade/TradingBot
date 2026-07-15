@@ -4,8 +4,9 @@ Mustafa Bot - Telegram Bot Commands
 """
 
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+
 
 from bot.formatters import MessageFormatter
 
@@ -18,19 +19,24 @@ class BotCommands:
     def __init__(self, signal_engine=None):
         self.signal_engine = signal_engine
         self.formatter = MessageFormatter()
+        self.user_states = {}
 
     async def start_command(self, update: Update,
                              context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
+        user_id = update.effective_user.id
+        self.user_states[user_id] = 'normal'  # Reset state
+
         welcome = self.formatter.format_welcome()
         keyboard = [
-            ['🔔 إشارة فورية', '📊 تحليل السوق'],
-            ['🔮 التوقع والارتداد', '⚙️ حالة البوت'],
-            ['📖 المساعدة']
+            ['🔔 طلب إشارة فورية', '📊 تحليل الذهب'],
+            ['🔮 توقع السعر المستقبلي', '⚙️ حالة البوت والاحصائيات'],
+            ['💬 التحدث مع الذكاء الاصطناعي']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(welcome, reply_markup=reply_markup)
-        logger.info(f'User {update.effective_user.id} started the bot')
+        logger.info(f'User {user_id} started the bot')
+
 
 
     async def signal_command(self, update: Update,
@@ -129,45 +135,122 @@ class BotCommands:
         """Handle /help command."""
         help_text = """📖 المساعدة | Mustafa Bot
 ━━━━━━━━━━━━━━━━━━━━
-📋 الأوامر:
+📋 الأوامر المتاحة من لوحة الأزرار:
 
-/start - بدء البوت ورسالة الترحيب
-/signal - طلب إشارة تداول فورية
-/analysis - تحليل شامل لسوق الذهب
-/predict - توقع السعر المستقبلي
-/status - إحصائيات ومعلومات البوت
-/help - عرض هذه الرسالة
+• 🔔 طلب إشارة فورية - اختيار إشارة سكالب أو سوينغ للذهب
+• 📊 تحليل الذهب - تحليل فني مفصل لهيكل السوق والـ Order Blocks
+• 🔮 توقع السعر المستقبلي - التوقعات السعرية ومناطق الارتداد
+• ⚙️ حالة البوت والاحصائيات - إحصائيات البوت ونسبة النجاح
+• 💬 التحدث مع الذكاء الاصطناعي - محادثة تفاعلية مع مستشار الذهب
 
 📝 ملاحظات:
-• البوت يرسل إشارات تلقائية خلال Kill Zones
-• كل إشارة تمر بـ 5 مراحل فلترة
-• يجب اتفاق 2/3 نماذج AI للإرسال
-• الإشارات تشمل دخول + وقف خسارة + 3 أهداف
+• يتم إرسال الإشارات تلقائياً خلال ساعات التداول النشطة
+• للتراجع أو الخروج من أي وضع، أرسل /cancel
 
 ⚠️ تحذير: التداول ينطوي على مخاطر عالية
 ━━━━━━━━━━━━━━━━━━━━
 🤖 Mustafa Bot v1.0"""
 
         keyboard = [
-            ['🔔 إشارة فورية', '📊 تحليل السوق'],
-            ['🔮 التوقع والارتداد', '⚙️ حالة البوت'],
-            ['📖 المساعدة']
+            ['🔔 طلب إشارة فورية', '📊 تحليل الذهب'],
+            ['🔮 توقع السعر المستقبلي', '⚙️ حالة البوت والاحصائيات'],
+            ['💬 التحدث مع الذكاء الاصطناعي']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(help_text, reply_markup=reply_markup)
 
+    async def cancel_command(self, update: Update,
+                             context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /cancel command - exit chat mode."""
+        user_id = update.effective_user.id
+        self.user_states[user_id] = 'normal'
+        await update.message.reply_text('🔙 تم الخروج من وضع التحدث مع الذكاء الاصطناعي والعودة للوضع الطبيعي.')
+
     async def handle_message(self, update: Update,
                               context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle incoming text messages to route button clicks."""
+        """Handle incoming text messages to route button clicks and AI chat."""
         text = update.message.text
-        if text == '🔔 إشارة فورية':
-            await self.signal_command(update, context)
-        elif text == '📊 تحليل السوق':
+        user_id = update.effective_user.id
+        current_state = self.user_states.get(user_id, 'normal')
+
+        # Check for main menu button clicks to exit chat mode automatically
+        if text in ['🔔 طلب إشارة فورية', '📊 تحليل الذهب', '🔮 توقع السعر المستقبلي', '⚙️ حالة البوت والاحصائيات', '💬 التحدث مع الذكاء الاصطناعي']:
+            self.user_states[user_id] = 'normal'
+            current_state = 'normal'
+
+        if current_state == 'chat':
+            # User is in chat mode, forward message to AI
+            await update.message.reply_text('🤔 جاري تفكير المستشار الذكي... ⏳')
+            try:
+                ai_response = await self.signal_engine.ai_manager.get_chat_response(text)
+                await update.message.reply_text(ai_response)
+            except Exception as e:
+                logger.error(f'AI Chat error: {e}')
+                await update.message.reply_text('❌ حدث خطأ أثناء معالجة رسالتك بالذكاء الاصطناعي.')
+            return
+
+        # Normal mode button routing
+        if text == '🔔 طلب إشارة فورية':
+            keyboard = [
+                [
+                    InlineKeyboardButton("⚡ إشارة سكالب (Scalp)", callback_data="get_scalp"),
+                    InlineKeyboardButton("🌊 إشارة سوينغ (Swing)", callback_data="get_swing")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("📥 اختر نوع إشارة تداول الذهب المطلوبة:", reply_markup=reply_markup)
+
+        elif text == '📊 تحليل الذهب':
             await self.analysis_command(update, context)
-        elif text == '🔮 التوقع والارتداد':
+
+        elif text == '🔮 توقع السعر المستقبلي':
             await self.predict_command(update, context)
-        elif text == '⚙️ حالة البوت':
+
+        elif text == '⚙️ حالة البوت والاحصائيات':
             await self.status_command(update, context)
-        elif text == '📖 المساعدة':
-            await self.help_command(update, context)
+
+        elif text == '💬 التحدث مع الذكاء الاصطناعي':
+            self.user_states[user_id] = 'chat'
+            chat_welcome = (
+                "💬 لقد دخلت الآن وضع التحدث مع الذكاء الاصطناعي 🧠 (مستشار تداول الذهب الخاص بك).\n\n"
+                "اكتب أي سؤال بخصوص الذهب، التحليل الفني، إدارة المخاطر، أو سلوك السوق، وسأجيبك فوراً كمتداول خبير لأكثر من 20 سنة!\n\n"
+                "*(للخروج والعودة للوحة الأزرار، اضغط على أي زر آخر أو أرسل /cancel)*"
+            )
+            await update.message.reply_text(chat_welcome, parse_mode="Markdown")
+
+    async def handle_callback(self, update: Update,
+                               context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline button clicks for signals."""
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+
+        if data == "get_scalp":
+            await query.message.reply_text("🔄 جاري تحليل الذهب لإشارات السكالب (Scalp) عبر SMC + AI... ⏳")
+            try:
+                signals = await self.signal_engine.run_analysis('SCALP')
+                if signals:
+                    for signal in signals:
+                        msg = self.formatter.format_signal(signal)
+                        await query.message.reply_text(msg)
+                else:
+                    await query.message.reply_text("⚠️ لم يتم العثور على إشارة سكالب تتوافق مع شروط الفلترة وAI حالياً.\nسيتم الإرسال تلقائياً فور توفرها.")
+            except Exception as e:
+                logger.error(f"Callback Scalp error: {e}")
+                await query.message.reply_text("❌ حدث خطأ أثناء تحليل السكالب.")
+
+        elif data == "get_swing":
+            await query.message.reply_text("🔄 جاري تحليل الذهب لإشارات السوينغ (Swing) عبر SMC + AI... ⏳")
+            try:
+                signals = await self.signal_engine.run_analysis('SWING')
+                if signals:
+                    for signal in signals:
+                        msg = self.formatter.format_signal(signal)
+                        await query.message.reply_text(msg)
+                else:
+                    await query.message.reply_text("⚠️ لم يتم العثور على إشارة سوينغ تتوافق مع شروط الفلترة وAI حالياً.\nسيتم الإرسال تلقائياً فور توفرها.")
+            except Exception as e:
+                logger.error(f"Callback Swing error: {e}")
+                await query.message.reply_text("❌ حدث خطأ أثناء تحليل السوينغ.")
+
 
