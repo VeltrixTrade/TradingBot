@@ -29,13 +29,22 @@ class BotCommands:
 
         welcome = self.formatter.format_welcome()
         keyboard = [
-            ['🔔 طلب إشارة فورية', '📊 تحليل الذهب'],
-            ['🔮 توقع السعر المستقبلي', '⚙️ حالة البوت والاحصائيات'],
-            ['💬 التحدث مع الذكاء الاصطناعي']
+            [
+                InlineKeyboardButton("🔔 طلب إشارة فورية", callback_data="btn_signal"),
+                InlineKeyboardButton("📊 تحليل الذهب", callback_data="btn_analysis")
+            ],
+            [
+                InlineKeyboardButton("🔮 توقع السعر المستقبلي", callback_data="btn_predict"),
+                InlineKeyboardButton("⚙️ حالة البوت والاحصائيات", callback_data="btn_status")
+            ],
+            [
+                InlineKeyboardButton("💬 التحدث مع الذكاء الاصطناعي", callback_data="btn_chat")
+            ]
         ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(welcome, reply_markup=reply_markup)
         logger.info(f'User {user_id} started the bot')
+
 
 
 
@@ -152,12 +161,21 @@ class BotCommands:
 🤖 Mustafa Bot v1.0"""
 
         keyboard = [
-            ['🔔 طلب إشارة فورية', '📊 تحليل الذهب'],
-            ['🔮 توقع السعر المستقبلي', '⚙️ حالة البوت والاحصائيات'],
-            ['💬 التحدث مع الذكاء الاصطناعي']
+            [
+                InlineKeyboardButton("🔔 طلب إشارة فورية", callback_data="btn_signal"),
+                InlineKeyboardButton("📊 تحليل الذهب", callback_data="btn_analysis")
+            ],
+            [
+                InlineKeyboardButton("🔮 توقع السعر المستقبلي", callback_data="btn_predict"),
+                InlineKeyboardButton("⚙️ حالة البوت والاحصائيات", callback_data="btn_status")
+            ],
+            [
+                InlineKeyboardButton("💬 التحدث مع الذكاء الاصطناعي", callback_data="btn_chat")
+            ]
         ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(help_text, reply_markup=reply_markup)
+
 
     async def cancel_command(self, update: Update,
                              context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -220,12 +238,66 @@ class BotCommands:
 
     async def handle_callback(self, update: Update,
                                context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle inline button clicks for signals."""
+        """Handle inline button clicks for signals and main menu."""
         query = update.callback_query
         await query.answer()
         data = query.data
 
-        if data == "get_scalp":
+        if data == "btn_signal":
+            keyboard = [
+                [
+                    InlineKeyboardButton("⚡ إشارة سكالب (Scalp)", callback_data="get_scalp"),
+                    InlineKeyboardButton("🌊 إشارة سوينغ (Swing)", callback_data="get_swing")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text("📥 اختر نوع إشارة تداول الذهب المطلوبة:", reply_markup=reply_markup)
+
+        elif data == "btn_analysis":
+            await query.message.reply_text('📊 جاري تحليل سوق الذهب... ⏳')
+            try:
+                analysis_msg = await self.signal_engine.get_market_analysis()
+                await query.message.reply_text(analysis_msg)
+            except Exception as e:
+                logger.error(f'Analysis callback error: {e}')
+                await query.message.reply_text('❌ خطأ في تحليل السوق.')
+
+        elif data == "btn_predict":
+            await query.message.reply_text('🔮 جاري حساب التوقعات الفنية... ⏳')
+            try:
+                prediction_msg = await self.signal_engine.get_prediction()
+                await query.message.reply_text(prediction_msg)
+            except Exception as e:
+                logger.error(f'Predict callback error: {e}')
+                await query.message.reply_text('❌ خطأ في حساب التوقعات.')
+
+        elif data == "btn_status":
+            try:
+                active = len(self.signal_engine.active_signals)
+                total = self.signal_engine.total_signals
+                wins = self.signal_engine.wins
+                losses = self.signal_engine.losses
+                total_trades = wins + losses
+                win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+                from datetime import datetime
+                last_update = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+                msg = self.formatter.format_status(active, total, win_rate, last_update)
+                await query.message.reply_text(msg)
+            except Exception as e:
+                logger.error(f'Status callback error: {e}')
+                await query.message.reply_text('❌ خطأ في جلب الحالة.')
+
+        elif data == "btn_chat":
+            user_id = query.from_user.id
+            self.user_states[user_id] = 'chat'
+            chat_welcome = (
+                "💬 لقد دخلت الآن وضع التحدث مع الذكاء الاصطناعي 🧠 (مستشار تداول الذهب الخاص بك).\n\n"
+                "اكتب أي سؤال بخصوص الذهب، التحليل الفني، إدارة المخاطر، أو سلوك السوق، وسأجيبك فوراً كمتداول خبير لأكثر من 20 سنة!\n\n"
+                "*(للخروج والعودة للوحة الأزرار، أرسل /cancel)*"
+            )
+            await query.message.reply_text(chat_welcome, parse_mode="Markdown")
+
+        elif data == "get_scalp":
             await query.message.reply_text("🔄 جاري تحليل الذهب لإشارات السكالب (Scalp) عبر SMC + AI... ⏳")
             try:
                 signals = await self.signal_engine.run_analysis('SCALP', is_manual=True)
@@ -252,5 +324,6 @@ class BotCommands:
             except Exception as e:
                 logger.error(f"Callback Swing error: {e}")
                 await query.message.reply_text("❌ حدث خطأ أثناء تحليل السوينغ.")
+
 
 
