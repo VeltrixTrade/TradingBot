@@ -14,7 +14,8 @@ class Config:
 
     # ── Telegram ──
     TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '')
+    CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '') or os.getenv('TELEGRAM_CHANNEL_ID', '')
+
 
     # ── AI API Keys ──
     DEEPSEEK_API_KEY: str = os.getenv('DEEPSEEK_API_KEY', '')
