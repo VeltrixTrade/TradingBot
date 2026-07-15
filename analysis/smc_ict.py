@@ -300,7 +300,7 @@ class SMCICTEngine:
                 confluence_list.append(f"Zone ({pd_zone})")
                 confluence_count += 1
 
-            if confluence_count >= 2:
+            if confluence_count >= 1:
                 direction = 'BUY' if ob['type'] == 'BULLISH' else 'SELL'
 
                 if direction == 'BUY':

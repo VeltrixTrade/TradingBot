@@ -51,10 +51,10 @@ class SignalEngine:
 
         logger.info('✅ Signal Engine initialized')
 
-    async def run_analysis(self, signal_type: str = 'SCALP') -> List[Signal]:
+    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False) -> List[Signal]:
         """Run complete analysis pipeline."""
         try:
-            logger.info(f'🔄 Starting {signal_type} analysis...')
+            logger.info(f'🔄 Starting {signal_type} analysis (Manual: {is_manual})...')
 
             # 1. Fetch data
             timeframes = Config.SCALP_TIMEFRAMES if signal_type == 'SCALP' else Config.SWING_TIMEFRAMES
@@ -102,7 +102,9 @@ class SignalEngine:
             filtered = self.signal_filter.filter_signals(
                 signals,
                 market_trend=higher_tf_bias,
+                is_manual=is_manual,
             )
+
 
             if filtered:
                 self.active_signals.extend(filtered)

@@ -49,11 +49,11 @@ class BotCommands:
                 await update.message.reply_text('❌ محرك التحليل غير متوفر')
                 return
 
-            # Run both scalp and swing analysis
-            signals = await self.signal_engine.run_analysis('SCALP')
+            # Run both scalp and swing analysis with is_manual=True
+            signals = await self.signal_engine.run_analysis('SCALP', is_manual=True)
 
             if not signals:
-                signals = await self.signal_engine.run_analysis('SWING')
+                signals = await self.signal_engine.run_analysis('SWING', is_manual=True)
 
             if signals:
                 for signal in signals:
@@ -228,7 +228,7 @@ class BotCommands:
         if data == "get_scalp":
             await query.message.reply_text("🔄 جاري تحليل الذهب لإشارات السكالب (Scalp) عبر SMC + AI... ⏳")
             try:
-                signals = await self.signal_engine.run_analysis('SCALP')
+                signals = await self.signal_engine.run_analysis('SCALP', is_manual=True)
                 if signals:
                     for signal in signals:
                         msg = self.formatter.format_signal(signal)
@@ -242,7 +242,7 @@ class BotCommands:
         elif data == "get_swing":
             await query.message.reply_text("🔄 جاري تحليل الذهب لإشارات السوينغ (Swing) عبر SMC + AI... ⏳")
             try:
-                signals = await self.signal_engine.run_analysis('SWING')
+                signals = await self.signal_engine.run_analysis('SWING', is_manual=True)
                 if signals:
                     for signal in signals:
                         msg = self.formatter.format_signal(signal)

@@ -17,13 +17,34 @@ class SignalFilter:
     """5-stage signal filtering pipeline to find only the best signals."""
 
     def filter_signals(self, signals: List[Signal], market_trend: str = 'NEUTRAL',
-                       current_hour_utc: int = None) -> List[Signal]:
+                       current_hour_utc: int = None, is_manual: bool = False) -> List[Signal]:
         """Run all 5 filter stages and return the best signal(s)."""
         if not signals:
             return []
 
         if current_hour_utc is None:
             current_hour_utc = datetime.now(timezone.utc).hour
+
+        if is_manual:
+            logger.info(f'⚡ Manual query: relaxing filters to find the best available setup from {len(signals)} signals')
+            # For manual queries, we bypass Trend and Kill Zone checks.
+            # We enforce AI Consensus to ensure the direction is validated by models.
+            filtered = self._filter_by_ai_consensus(signals)
+            if not filtered:
+                logger.info('  Manual: No signals passed AI consensus')
+                return []
+
+            # We relax the Risk/Reward filter to a lower threshold so more trades qualify
+            relaxed_rr = []
+            for s in filtered:
+                min_rr = 1.2 if s.type == SignalType.SCALP else 1.8
+                if s.risk_reward >= min_rr:
+                    relaxed_rr.append(s)
+
+            # Return the best of the relaxed set, or fallback to the AI consensus set
+            best = self._select_best(relaxed_rr if relaxed_rr else filtered)
+            logger.info(f'📤 Manual Filter complete: {len(best)} signal(s) selected')
+            return best
 
         logger.info(f'📥 Starting filter pipeline with {len(signals)} signals')
 
@@ -60,8 +81,8 @@ class SignalFilter:
         # Select best
         best = self._select_best(filtered)
         logger.info(f'📤 Filter complete: {len(best)} signal(s) selected')
-
         return best
+
 
     def _filter_by_trend(self, signals: List[Signal],
                           market_trend: str) -> List[Signal]:
