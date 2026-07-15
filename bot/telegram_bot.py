@@ -217,9 +217,29 @@ class MustafaBot:
         finally:
             self._analysis_running = False
 
+    async def post_init(self, application: Application) -> None:
+        """Runs after the bot is initialized and event loop is running."""
+        # Initialize and start scheduler inside the event loop
+        self.scheduler = AnalysisScheduler()
+        self.scheduler.add_analysis_job(self.scheduled_analysis, Config.ANALYSIS_INTERVAL_SECONDS)
+        self.scheduler.start()
+        logger.info(f'⏰ Scheduler configured and started: every {Config.ANALYSIS_INTERVAL_SECONDS}s')
+
+    async def post_shutdown(self, application: Application) -> None:
+        """Runs during bot shutdown."""
+        if hasattr(self, 'scheduler') and self.scheduler:
+            self.scheduler.stop()
+            logger.info('⏰ Scheduler stopped')
+
     def setup(self) -> None:
         """Setup the bot with all command handlers."""
-        self.app = Application.builder().token(Config.TELEGRAM_TOKEN).build()
+        self.app = (
+            Application.builder()
+            .token(Config.TELEGRAM_TOKEN)
+            .post_init(self.post_init)
+            .post_shutdown(self.post_shutdown)
+            .build()
+        )
 
         # Add command handlers
         self.app.add_handler(CommandHandler('start', self.commands.start_command))
@@ -233,4 +253,5 @@ class MustafaBot:
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.commands.handle_message))
 
         logger.info('✅ Bot handlers configured')
+
 

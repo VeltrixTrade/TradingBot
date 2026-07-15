@@ -46,29 +46,17 @@ def main():
 
     # Import here to avoid circular imports and show config errors first
     from bot.telegram_bot import MustafaBot
-    from utils.scheduler import AnalysisScheduler
 
     # Create bot
     bot = MustafaBot()
     bot.setup()
     logger.info('✅ Bot configured')
 
-    # Create scheduler
-    scheduler = AnalysisScheduler()
-    scheduler.add_analysis_job(
-        bot.scheduled_analysis,
-        Config.ANALYSIS_INTERVAL_SECONDS
-    )
-    logger.info(f'✅ Scheduler configured: every {Config.ANALYSIS_INTERVAL_SECONDS}s')
-
     # Start
     logger.info('')
     logger.info('🚀 Starting Mustafa Bot...')
     logger.info('📱 Send /start to your bot on Telegram')
     logger.info('')
-
-    # Start scheduler
-    scheduler.start()
 
     # Start bot (blocking)
     try:
@@ -81,8 +69,8 @@ def main():
     except Exception as e:
         logger.error(f'❌ Fatal error: {e}', exc_info=True)
     finally:
-        scheduler.stop()
         logger.info('👋 Mustafa Bot stopped. Goodbye!')
+
 
 
 if __name__ == '__main__':
