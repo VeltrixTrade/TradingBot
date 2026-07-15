@@ -4,8 +4,9 @@ Mustafa Bot - Telegram Bot Commands
 """
 
 import logging
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
+
 
 
 from bot.formatters import MessageFormatter
@@ -27,6 +28,13 @@ class BotCommands:
         user_id = update.effective_user.id
         self.user_states[user_id] = 'normal'  # Reset state
 
+        # Remove the bottom persistent keyboard
+        clear_msg = await update.message.reply_text("🔄 جاري تهيئة الواجهة...", reply_markup=ReplyKeyboardRemove())
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=clear_msg.message_id)
+        except Exception:
+            pass
+
         welcome = self.formatter.format_welcome()
         keyboard = [
             [
@@ -44,6 +52,7 @@ class BotCommands:
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(welcome, reply_markup=reply_markup)
         logger.info(f'User {user_id} started the bot')
+
 
 
 
@@ -142,6 +151,13 @@ class BotCommands:
     async def help_command(self, update: Update,
                             context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
+        # Remove the bottom persistent keyboard
+        clear_msg = await update.message.reply_text("🔄 جاري تهيئة الواجهة...", reply_markup=ReplyKeyboardRemove())
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=clear_msg.message_id)
+        except Exception:
+            pass
+
         help_text = """📖 المساعدة | Mustafa Bot
 ━━━━━━━━━━━━━━━━━━━━
 📋 الأوامر المتاحة من لوحة الأزرار:
