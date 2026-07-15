@@ -343,6 +343,40 @@ class SMCICTEngine:
                     'ob_strength': ob['strength'],
                 })
 
+        if not setups:
+            # Fallback setup based on indicators/trend if no order block is found
+            direction = 'BUY' if bias == 'BULLISH' else 'SELL' if bias == 'BEARISH' else None
+            if not direction:
+                direction = 'BUY' if analysis['indicators']['rsi'] < 50 else 'SELL'
+            
+            entry = current_price
+            if direction == 'BUY':
+                stop_loss = current_price - atr * 1.5
+                tp1 = current_price + atr * 2.0
+                tp2 = current_price + atr * 3.5
+                tp3 = current_price + atr * 5.0
+            else:
+                stop_loss = current_price + atr * 1.5
+                tp1 = current_price - atr * 2.0
+                tp2 = current_price - atr * 3.5
+                tp3 = current_price - atr * 5.0
+
+            description = f"إعداد {('شراء 🟢' if direction == 'BUY' else 'بيع 🔴')} احتياطي فني بناءً على الاتجاه {bias} والسعر الحالي {current_price:.2f}"
+            setups.append({
+                'direction': direction,
+                'entry_zone': (entry - atr*0.2, entry + atr*0.2),
+                'entry': round(entry, 2),
+                'stop_loss': round(stop_loss, 2),
+                'tp1': round(tp1, 2),
+                'tp2': round(tp2, 2),
+                'tp3': round(tp3, 2),
+                'confluence_count': 1,
+                'confluence_list': ['Technical Fallback (Trend/RSI)'],
+                'description': description,
+                'score': 70,
+                'ob_strength': 5,
+            })
+
         # Sort by score descending
         setups.sort(key=lambda x: x['score'], reverse=True)
         return setups[:5]  # Top 5 setups

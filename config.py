@@ -31,7 +31,7 @@ class Config:
     SYMBOL: str = 'XAUUSD'
     EXCHANGE: str = 'OANDA'
     SCALP_TIMEFRAMES: list = ['1m', '5m', '15m']
-    SWING_TIMEFRAMES: list = ['1h', '4h', '1d']
+    SWING_TIMEFRAMES: list = ['30m', '1h', '4h']
 
     # ── Risk Management ──
     MIN_RISK_REWARD_SCALP: float = 2.0

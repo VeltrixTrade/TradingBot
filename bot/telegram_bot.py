@@ -76,35 +76,47 @@ class SignalEngine:
             mtf_analysis = self.smc_engine.multi_timeframe_analysis(data)
             higher_tf_bias = mtf_analysis.get('higher_tf_bias', 'NEUTRAL')
 
-            # Use the primary timeframe analysis
-            primary_tf = timeframes[-1] if timeframes else '15m'
-            if primary_tf in mtf_analysis.get('analyses', {}):
-                smc_analysis = mtf_analysis['analyses'][primary_tf]
-            elif data:
-                first_tf = list(data.keys())[0]
-                smc_analysis = self.smc_engine.analyze(data[first_tf], first_tf)
-            else:
-                return []
+            filtered = []
+            
+            # Loop through timeframes to find the best setups across all periods
+            for tf in timeframes:
+                logger.info(f'Scanning timeframe {tf} for {signal_type} setups...')
+                if tf in mtf_analysis.get('analyses', {}):
+                    smc_analysis = mtf_analysis['analyses'][tf]
+                elif tf in data:
+                    smc_analysis = self.smc_engine.analyze(data[tf], tf)
+                else:
+                    continue
 
-            # 3. AI consensus
-            market_data = {'current_price': current_price, 'timeframes': list(data.keys())}
-            ai_consensus = await self.ai_manager.get_consensus_analysis(
-                market_data, smc_analysis, signal_type
-            )
+                setups = smc_analysis.get('setups', [])
+                if not setups:
+                    logger.info(f'  No setups found on {tf}')
+                    continue
 
-            # 4. Generate signals
-            tf_label = primary_tf.upper()
-            signals = self.signal_generator.generate_signals(
-                smc_analysis, ai_consensus, signal_type, tf_label, current_price
-            )
+                # 3. AI consensus for this specific structure
+                market_data = {'current_price': current_price, 'timeframe': tf}
+                ai_consensus = await self.ai_manager.get_consensus_analysis(
+                    market_data, smc_analysis, signal_type
+                )
 
-            # 5. Filter signals
-            filtered = self.signal_filter.filter_signals(
-                signals,
-                market_trend=higher_tf_bias,
-                is_manual=is_manual,
-            )
+                # 4. Generate signals
+                signals = self.signal_generator.generate_signals(
+                    smc_analysis, ai_consensus, signal_type, tf.upper(), current_price
+                )
 
+                # 5. Filter signals
+                tf_filtered = self.signal_filter.filter_signals(
+                    signals,
+                    market_trend=higher_tf_bias,
+                    is_manual=is_manual,
+                )
+
+                if tf_filtered:
+                    logger.info(f'✅ Found {len(tf_filtered)} valid signal(s) on timeframe {tf}')
+                    filtered.extend(tf_filtered)
+                    if is_manual:
+                        # For manual requests, stop as soon as we find a valid setup to respond quickly
+                        break
 
             if filtered:
                 self.active_signals.extend(filtered)
