@@ -47,12 +47,22 @@ class PriceFetcher:
     def get_historical_data(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
         """Get historical OHLCV data with lowercase columns and datetime index."""
         df = None
+        active_source = 'unknown'
 
         if self.source == 'tradingview' and self.tv is not None:
             df = self._fetch_from_tv(timeframe, n_bars)
+            if df is not None:
+                active_source = 'tradingview'
+
+        if df is None:
+            df = self._fetch_from_binance(timeframe, n_bars)
+            if df is not None:
+                active_source = 'binance'
 
         if df is None:
             df = self._fetch_from_yfinance(timeframe, n_bars)
+            if df is not None:
+                active_source = 'yfinance'
 
         if df is not None and not df.empty:
             df.columns = [c.lower() for c in df.columns]
@@ -65,11 +75,12 @@ class PriceFetcher:
                 df['volume'] = 0
             # Remove any rows with NaN in OHLC
             df = df.dropna(subset=['open', 'high', 'low', 'close'])
-            logger.info(f'Fetched {len(df)} bars for {timeframe} from {self.source}')
+            logger.info(f'Fetched {len(df)} bars for {timeframe} from {active_source}')
         else:
             logger.error(f'Failed to fetch data for {timeframe}')
 
         return df
+
 
     def _fetch_from_tv(self, timeframe: str, n_bars: int) -> Optional[pd.DataFrame]:
         """Fetch data from TradingView."""
@@ -98,6 +109,59 @@ class PriceFetcher:
             logger.error(f'TradingView fetch error: {e}')
 
         return None
+
+    def _fetch_from_binance(self, timeframe: str, n_bars: int) -> Optional[pd.DataFrame]:
+        """Fetch real-time Spot Gold price from Binance via PAXGUSDT."""
+        try:
+            import urllib.request
+            import json
+            import pandas as pd
+
+            # Map timeframes to Binance intervals
+            interval_map = {
+                '1m': '1m',
+                '5m': '5m',
+                '15m': '15m',
+                '30m': '30m',
+                '1h': '1h',
+                '4h': '4h',
+                '1d': '1d'
+            }
+
+            interval = interval_map.get(timeframe)
+            if not interval:
+                logger.warning(f'Unsupported Binance timeframe: {timeframe}')
+                return None
+
+            limit = min(1000, n_bars)
+            url = f'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}'
+
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read())
+
+            if not data:
+                return None
+
+            # Parse Binance response
+            df = pd.DataFrame(data, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'qav', 'num_trades', 'taker_base', 'taker_quote', 'ignore'
+            ])
+
+            # Convert types
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+
+            cols = ['open', 'high', 'low', 'close', 'volume']
+            for col in cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            return df[cols]
+
+        except Exception as e:
+            logger.error(f'Binance fetch error: {e}')
+            return None
 
     def _fetch_from_yfinance(self, timeframe: str, n_bars: int) -> Optional[pd.DataFrame]:
         """Fetch from yfinance as fallback using GC=F (gold futures)."""
