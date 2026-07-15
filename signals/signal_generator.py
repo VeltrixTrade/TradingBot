@@ -24,26 +24,18 @@ class SignalGenerator:
 
     def generate_signals(self, smc_analysis: Dict, ai_consensus: Dict,
                           signal_type: str = 'SCALP', timeframe: str = 'M15',
-                          current_price: float = 0.0) -> List[Signal]:
+                          current_price: float = 0.0, is_manual: bool = False) -> List[Signal]:
         """Generate signals from combined SMC + AI analysis."""
         self._reset_daily_counts()
 
-        # Check daily limits
-        if signal_type == 'SCALP' and self.daily_scalp_count >= Config.MAX_DAILY_SCALP_SIGNALS:
-            logger.info('Daily scalp signal limit reached')
-            return []
-        if signal_type == 'SWING' and self.daily_swing_count >= Config.MAX_DAILY_SWING_SIGNALS:
-            logger.info('Daily swing signal limit reached')
-            return []
-
-        # Check AI consensus
-        if not ai_consensus.get('consensus_reached', False):
-            logger.info('No AI consensus reached, skipping signal generation')
-            return []
-
-        if ai_consensus.get('direction', 'NEUTRAL') == 'NEUTRAL':
-            logger.info('AI consensus is NEUTRAL, skipping')
-            return []
+        # Check daily limits (only for automated signals)
+        if not is_manual:
+            if signal_type == 'SCALP' and self.daily_scalp_count >= Config.MAX_DAILY_SCALP_SIGNALS:
+                logger.info('Daily scalp signal limit reached')
+                return []
+            if signal_type == 'SWING' and self.daily_swing_count >= Config.MAX_DAILY_SWING_SIGNALS:
+                logger.info('Daily swing signal limit reached')
+                return []
 
         # Get setups from SMC analysis
         setups = smc_analysis.get('setups', [])
@@ -51,17 +43,27 @@ class SignalGenerator:
             logger.info('No SMC setups found')
             return []
 
+        # Check AI consensus (only for automated signals)
+        ai_direction = ai_consensus.get('direction', 'NEUTRAL')
+        if not is_manual:
+            if not ai_consensus.get('consensus_reached', False) or ai_direction == 'NEUTRAL':
+                logger.info('No AI consensus reached, skipping automated signal generation')
+                return []
+
         signals = []
         for setup in setups:
-            # Setup direction must match AI consensus
-            if setup['direction'] != ai_consensus['direction']:
-                continue
+            # Setup direction must match AI consensus (only for automated signals)
+            if not is_manual:
+                if setup['direction'] != ai_direction:
+                    continue
 
             signal = self._create_signal_from_setup(
                 setup, ai_consensus, signal_type, timeframe, current_price
             )
 
-            if signal and signal.confidence >= Config.MIN_CONFIDENCE:
+            # Relax confidence requirement for manual queries to ensure setup delivery
+            min_conf = Config.MIN_CONFIDENCE - 15 if is_manual else Config.MIN_CONFIDENCE
+            if signal and signal.confidence >= min_conf:
                 signals.append(signal)
 
                 # Update daily counts

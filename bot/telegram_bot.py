@@ -101,7 +101,7 @@ class SignalEngine:
 
                 # 4. Generate signals
                 signals = self.signal_generator.generate_signals(
-                    smc_analysis, ai_consensus, signal_type, tf.upper(), current_price
+                    smc_analysis, ai_consensus, signal_type, tf.upper(), current_price, is_manual=is_manual
                 )
 
                 # 5. Filter signals
