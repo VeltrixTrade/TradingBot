@@ -82,7 +82,12 @@ class AIManager:
 
         # Determine consensus
         direction, agreement = self._determine_consensus(valid)
-        consensus_reached = agreement >= 2
+        
+        # Dynamic consensus validation based on number of active AI models
+        if len(valid) == 1:
+            consensus_reached = direction != 'NEUTRAL'
+        else:
+            consensus_reached = agreement >= 2
 
         if not consensus_reached:
             return {
@@ -98,6 +103,7 @@ class AIManager:
                 'consensus_reached': False,
                 'consensus_text': f'⚠️ لا إجماع - {agreement}/{len(valid)} نماذج متفقة',
             }
+
 
         # Calculate consensus values
         confidence = self._weighted_confidence(valid, direction)
