@@ -21,6 +21,15 @@ _tv_client = None
 # Shared global candles memory cache
 _candles_cache = {}
 
+# Concurrency semaphore to prevent Handshake status 429 Too Many Requests
+_tv_semaphore = None
+
+def get_tv_semaphore():
+    global _tv_semaphore
+    if _tv_semaphore is None:
+        _tv_semaphore = asyncio.Semaphore(2)
+    return _tv_semaphore
+
 def get_tv_client():
     global _tv_client
     if _tv_client is None:
@@ -144,38 +153,39 @@ class PriceFetcher:
         # Optimization: if cache exists, fetch only the last 3 candles to update/append delta
         fetch_bars = 3 if cached_df is not None and not cached_df.empty else n_bars
 
-        for attempt in range(3):
-            try:
-                # Offload blocking WebSocket/network call to a separate worker thread
-                df = await asyncio.to_thread(client.get_hist, symbol=symbol, exchange=exchange, interval=tv_interval, n_bars=fetch_bars)
-                if df is not None and not df.empty:
-                    df = df.copy()
-                    df.index.name = 'time'
-                    if 'volume' in df.columns:
-                        df.rename(columns={'volume': 'tick_volume'}, inplace=True)
-                    else:
-                        df['tick_volume'] = 0.0
+        async with get_tv_semaphore():
+            for attempt in range(3):
+                try:
+                    # Offload blocking WebSocket/network call to a separate worker thread
+                    df = await asyncio.to_thread(client.get_hist, symbol=symbol, exchange=exchange, interval=tv_interval, n_bars=fetch_bars)
+                    if df is not None and not df.empty:
+                        df = df.copy()
+                        df.index.name = 'time'
+                        if 'volume' in df.columns:
+                            df.rename(columns={'volume': 'tick_volume'}, inplace=True)
+                        else:
+                            df['tick_volume'] = 0.0
 
-                    for col in ['open', 'high', 'low', 'close', 'tick_volume']:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        for col in ['open', 'high', 'low', 'close', 'tick_volume']:
+                            if col in df.columns:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
 
-                    new_df = df[['open', 'high', 'low', 'close', 'tick_volume']].dropna()
+                        new_df = df[['open', 'high', 'low', 'close', 'tick_volume']].dropna()
 
-                    if cached_df is not None and not cached_df.empty:
-                        merged = pd.concat([cached_df, new_df])
-                        merged = merged[~merged.index.duplicated(keep='last')]
-                        merged.sort_index(inplace=True)
-                        if len(merged) > n_bars:
-                            merged = merged.tail(n_bars)
-                        _candles_cache[self.symbol_key][timeframe] = merged
-                    else:
-                        _candles_cache[self.symbol_key][timeframe] = new_df
+                        if cached_df is not None and not cached_df.empty:
+                            merged = pd.concat([cached_df, new_df])
+                            merged = merged[~merged.index.duplicated(keep='last')]
+                            merged.sort_index(inplace=True)
+                            if len(merged) > n_bars:
+                                merged = merged.tail(n_bars)
+                            _candles_cache[self.symbol_key][timeframe] = merged
+                        else:
+                            _candles_cache[self.symbol_key][timeframe] = new_df
 
-                    return _candles_cache[self.symbol_key][timeframe]
-            except Exception as e:
-                logger.warning(f"Async TV fetch attempt {attempt+1} failed for {self.symbol_key} ({timeframe}): {e}")
-                await asyncio.sleep(0.1)
+                        return _candles_cache[self.symbol_key][timeframe]
+                except Exception as e:
+                    logger.warning(f"Async TV fetch attempt {attempt+1} failed for {self.symbol_key} ({timeframe}): {e}")
+                    await asyncio.sleep(0.15)
 
         return cached_df
 
