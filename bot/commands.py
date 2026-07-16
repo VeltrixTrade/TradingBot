@@ -84,10 +84,6 @@ class BotCommands:
                 InlineKeyboardButton("📋 سجل الصفقات", callback_data="btn_history")
             ],
             [
-                InlineKeyboardButton("🧪 اختبار تاريخي (Backtest)", callback_data="btn_backtest"),
-                InlineKeyboardButton("🛠️ تشخيص الخادم", callback_data="btn_diagnostics")
-            ],
-            [
                 InlineKeyboardButton("💬 التحدث مع AI", callback_data="btn_chat")
             ]
         ]
@@ -702,8 +698,6 @@ class BotCommands:
 • 🔔 طلب إشارة فورية - اختيار إشارة سكالب أو سوينغ للرمز المختار
 • 📊 تحليل السوق - تحليل فني مفصل لهيكل السوق والـ Order Blocks
 • 🔄 تغيير الرمز - تغيير الزوج/السلعة الحالية (/symbol)
-• 🧪 الاختبار التاريخي - فحص نتائج الاستراتيجية على البيانات التاريخية
-• 🛠️ تشخيص الخادم - مراقبة حالة جلب البيانات وصحة السيرفر
 
 ⚠️ تحذير: التداول ينطوي على مخاطر عالية
 ━━━━━━━━━━━━━━━━━━━━
