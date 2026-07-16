@@ -57,51 +57,5 @@ class FuturesSpotConverter:
             return 0.0, 0.0, 0.0
 
     def convert_setup_to_spot(self, setup: Dict, symbol_key: str = 'XAU/USD') -> Dict:
-        """Convert all setup levels (Entry, SL, TPs) from Futures levels to Spot market prices using live offset."""
-        if not setup:
-            return setup
-
-        sym_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, Config.SUPPORTED_SYMBOLS.get('XAU/USD', {}))
-        decimals = sym_info.get('decimal_places', 2)
-
-        offset, fut_p, spot_p = self.get_live_offset(symbol_key)
-
-        if offset == 0.0:
-            return setup
-
-        # Convert futures levels to spot levels by subtracting live offset
-        fut_entry = setup['entry']
-        fut_sl = setup['stop_loss']
-        fut_tp1 = setup['tp1']
-        fut_tp2 = setup['tp2']
-        fut_tp3 = setup['tp3']
-
-        spot_entry = round(fut_entry - offset, decimals)
-        spot_sl = round(fut_sl - offset, decimals)
-        spot_tp1 = round(fut_tp1 - offset, decimals)
-        spot_tp2 = round(fut_tp2 - offset, decimals)
-        spot_tp3 = round(fut_tp3 - offset, decimals)
-
-        # Recalculate Spot Risk-to-Reward ratio to guarantee strict structural alignment
-        spot_risk = abs(spot_entry - spot_sl)
-        spot_reward = abs(spot_tp1 - spot_entry)
-        spot_rr = round(spot_reward / max(0.0001, spot_risk), 2)
-
-        # Update setup dictionary with Spot prices
-        updated_setup = dict(setup)
-        updated_setup['entry'] = spot_entry
-        updated_setup['stop_loss'] = spot_sl
-        updated_setup['tp1'] = spot_tp1
-        updated_setup['tp2'] = spot_tp2
-        updated_setup['tp3'] = spot_tp3
-        updated_setup['risk_reward'] = spot_rr
-
-        # Attach Spot conversion audit metadata
-        updated_setup['converted_to_spot'] = True
-        updated_setup['futures_entry'] = fut_entry
-        updated_setup['futures_price'] = round(fut_p, decimals)
-        updated_setup['spot_price'] = round(spot_p, decimals)
-        updated_setup['futures_spot_offset'] = round(offset, decimals)
-
-        logger.info(f"🔄 Converted setup {symbol_key} to Spot prices: Entry {fut_entry} ➔ {spot_entry} (Offset: {offset:+.2f})")
-        return updated_setup
+        """Bypass conversion since all active sources (TwelveData / PAXG) are native Spot prices."""
+        return setup
