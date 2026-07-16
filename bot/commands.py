@@ -80,14 +80,6 @@ class BotCommands:
                 InlineKeyboardButton("📊 تحليل السوق", callback_data="btn_analysis")
             ],
             [
-                InlineKeyboardButton("🔮 توقع الأسعار", callback_data="btn_predict"),
-                InlineKeyboardButton("📈 إحصائيات الأداء", callback_data="btn_performance")
-            ],
-            [
-                InlineKeyboardButton("🎯 معايرة السعر", callback_data="btn_calibrate_price"),
-                InlineKeyboardButton("⚙️ نمط التداول والمخاطرة", callback_data="btn_settings")
-            ],
-            [
                 InlineKeyboardButton("🔄 تغيير الرمز", callback_data="btn_change_symbol"),
                 InlineKeyboardButton("📋 سجل الصفقات", callback_data="btn_history")
             ],
@@ -709,17 +701,13 @@ class BotCommands:
 
 • 🔔 طلب إشارة فورية - اختيار إشارة سكالب أو سوينغ للرمز المختار
 • 📊 تحليل السوق - تحليل فني مفصل لهيكل السوق والـ Order Blocks
-• 🔮 توقع الأسعار - التوقعات السعرية ومناطق الارتداد
-• 📈 إحصائيات الأداء - تحليل كَمّي للشخصية والأرباح والـ Sharpe
-• 🔗 حساب MT5 والربط - معالج إعداد اتصال حساب التداول المباشر
 • 🔄 تغيير الرمز - تغيير الزوج/السلعة الحالية (/symbol)
-• ⚙️ نمط التداول - التنقل بين أنماط الانتقائية الـ 5 (Sniper ➔ Ultra Aggressive)
 • 🧪 الاختبار التاريخي - فحص نتائج الاستراتيجية على البيانات التاريخية
 • 🛠️ تشخيص الخادم - مراقبة حالة جلب البيانات وصحة السيرفر
 
 ⚠️ تحذير: التداول ينطوي على مخاطر عالية
 ━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot v3.5 MT5 Integrated"""
+🤖 Mustafa Bot v3.5"""
         keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
         await self.msg_manager.send_or_edit(bot, chat_id, help_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
