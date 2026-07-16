@@ -188,6 +188,15 @@ class SignalGenerator:
         text += f"• {confluences}\n"
         text += f"• {setup.get('description', '')}\n"
 
+        # Triple EMA confirmation
+        ema_confirmed = setup.get('ema_confirmed')
+        ema_reason = setup.get('ema_reason', '')
+        if ema_confirmed is not None:
+            if ema_confirmed:
+                text += f"\n📊 Triple EMA: {ema_reason}\n"
+            else:
+                text += f"\n⚠️ Triple EMA: {ema_reason}\n"
+
         if ai_consensus.get('reasoning'):
             # Take first 200 chars of reasoning for brevity
             reasoning = ai_consensus['reasoning'][:300]

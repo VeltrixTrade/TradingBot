@@ -13,6 +13,7 @@ from analysis.order_blocks import OrderBlockDetector
 from analysis.fair_value_gaps import FairValueGapDetector
 from analysis.liquidity import LiquidityAnalyzer
 from analysis.indicators import TechnicalIndicators
+from analysis.triple_ema import TripleEMACrossover
 
 logger = logging.getLogger('mustafa_bot.analysis.engine')
 
@@ -26,6 +27,7 @@ class SMCICTEngine:
         self.fvg = FairValueGapDetector()
         self.liquidity = LiquidityAnalyzer(equal_level_tolerance=0.5)
         self.indicators = TechnicalIndicators()
+        self.triple_ema = TripleEMACrossover(fast=5, medium=20, slow=50)
 
     def analyze(self, df: pd.DataFrame, timeframe: str = 'M15') -> Dict:
         """Run complete SMC/ICT analysis."""
@@ -58,6 +60,9 @@ class SMCICTEngine:
             volatility = self.indicators.get_market_volatility(df)
             vol_profile = self.indicators.calculate_volume_profile(df)
             sr = self.indicators.calculate_support_resistance(df)
+
+            # 5.5 Triple EMA Crossover Analysis
+            triple_ema_result = self.triple_ema.analyze(df)
 
             # 6. Premium/Discount
             current_price = float(df['close'].iloc[-1])
@@ -93,6 +98,7 @@ class SMCICTEngine:
                     'volume_profile': vol_profile,
                     'support_resistance': sr,
                 },
+                'triple_ema': triple_ema_result,
                 'premium_discount': premium_discount,
                 'overall_bias': overall_bias,
                 'current_price': current_price,
@@ -318,6 +324,20 @@ class SMCICTEngine:
 
                 setup_score = min(100, ob['strength'] * 8 + confluence_count * 10)
 
+                # ─── Triple EMA Confirmation Layer ───
+                triple_ema = analysis.get('triple_ema', {})
+                ema_confirmed, ema_reason = self.triple_ema.confirms_direction(triple_ema, direction)
+                ema_boost = triple_ema.get('confidence_boost', 0)
+
+                if ema_confirmed:
+                    confluence_list.append(f'Triple EMA ({ema_reason})')
+                    confluence_count += 1
+                    setup_score = min(100, setup_score + ema_boost)
+                else:
+                    # EMA contradicts direction: reduce score but don't discard
+                    setup_score = max(30, setup_score - 10)
+                    confluence_list.append(f'Triple EMA ({ema_reason})')
+
                 # Arabic description
                 direction_ar = 'شراء' if direction == 'BUY' else 'بيع'
                 confluences_text = ' + '.join(confluence_list)
@@ -341,14 +361,30 @@ class SMCICTEngine:
                     'description': description,
                     'score': setup_score,
                     'ob_strength': ob['strength'],
+                    'ema_confirmed': ema_confirmed,
+                    'ema_reason': ema_reason,
                 })
 
         if not setups:
-            # Fallback setup based on indicators/trend if no order block is found
-            direction = 'BUY' if bias == 'BULLISH' else 'SELL' if bias == 'BEARISH' else None
-            if not direction:
+            # Fallback setup based on Triple EMA + indicators/trend
+            triple_ema = analysis.get('triple_ema', {})
+            ema_direction = triple_ema.get('crossover_direction')
+            ema_trend = triple_ema.get('trend', 'NEUTRAL')
+
+            # Priority: Triple EMA direction > bias > RSI
+            if ema_direction:
+                direction = ema_direction
+            elif ema_trend == 'BULLISH':
+                direction = 'BUY'
+            elif ema_trend == 'BEARISH':
+                direction = 'SELL'
+            elif bias == 'BULLISH':
+                direction = 'BUY'
+            elif bias == 'BEARISH':
+                direction = 'SELL'
+            else:
                 direction = 'BUY' if analysis['indicators']['rsi'] < 50 else 'SELL'
-            
+
             entry = current_price
             if direction == 'BUY':
                 stop_loss = current_price - atr * 1.5
@@ -361,7 +397,16 @@ class SMCICTEngine:
                 tp2 = current_price - atr * 3.5
                 tp3 = current_price - atr * 5.0
 
-            description = f"إعداد {('شراء 🟢' if direction == 'BUY' else 'بيع 🔴')} احتياطي فني بناءً على الاتجاه {bias} والسعر الحالي {current_price:.2f}"
+            ema_confirmed, ema_reason = self.triple_ema.confirms_direction(triple_ema, direction)
+            ema_boost = triple_ema.get('confidence_boost', 0)
+            fallback_score = 70 + ema_boost if ema_confirmed else 60
+
+            confluence_list = ['Technical Fallback (Trend/RSI)']
+            if ema_confirmed:
+                confluence_list.append(f'Triple EMA ({ema_reason})')
+
+            direction_emoji = '🟢' if direction == 'BUY' else '🔴'
+            description = f"إعداد {('شراء' if direction == 'BUY' else 'بيع')} {direction_emoji} احتياطي فني بناءً على Triple EMA + الاتجاه {bias} | السعر: {current_price:.2f}"
             setups.append({
                 'direction': direction,
                 'entry_zone': (entry - atr*0.2, entry + atr*0.2),
@@ -370,11 +415,13 @@ class SMCICTEngine:
                 'tp1': round(tp1, 2),
                 'tp2': round(tp2, 2),
                 'tp3': round(tp3, 2),
-                'confluence_count': 1,
-                'confluence_list': ['Technical Fallback (Trend/RSI)'],
+                'confluence_count': len(confluence_list),
+                'confluence_list': confluence_list,
                 'description': description,
-                'score': 70,
+                'score': fallback_score,
                 'ob_strength': 5,
+                'ema_confirmed': ema_confirmed,
+                'ema_reason': ema_reason,
             })
 
         # Sort by score descending
@@ -423,6 +470,11 @@ class SMCICTEngine:
         trend = trend_map.get(analysis['overall_bias'], 'محايد')
         pd_zone = pd_map.get(analysis['premium_discount'], 'غير محدد')
 
+        # Triple EMA section
+        triple_ema = analysis.get('triple_ema', {})
+        ema_desc = triple_ema.get('description', 'غير متوفر')
+        ema_vals = triple_ema.get('ema_values', {})
+
         summary = f"""📊 تحليل الذهب | {analysis['timeframe']}
 
 🔹 الاتجاه العام: {trend}
@@ -436,6 +488,8 @@ class SMCICTEngine:
   • EMA20: {analysis['indicators']['ema_20']:.2f}
   • EMA50: {analysis['indicators']['ema_50']:.2f}
   • التقلب: {analysis['indicators']['volatility']}
+
+{ema_desc}
 
 🏛️ أوردر بلوكات نشطة: {len(analysis['order_blocks'])}
 📊 فجوات قيمة عادلة: {len(analysis['fair_value_gaps'])}
@@ -462,6 +516,14 @@ class SMCICTEngine:
                 'rsi': 50, 'atr': 0, 'ema_20': 0, 'ema_50': 0, 'ema_200': 0,
                 'volatility': 'LOW', 'volume_profile': {}, 'support_resistance': {},
             },
+            'triple_ema': {
+                'trend': 'NEUTRAL', 'alignment': 'NONE',
+                'initial_signal': None, 'confirmation_signal': None,
+                'crossover_direction': None,
+                'ema_values': {'ema_5': 0, 'ema_20': 0, 'ema_50': 0},
+                'confidence_boost': 0,
+                'description': 'لا توجد بيانات كافية لتحليل Triple EMA',
+            },
             'premium_discount': 'EQUILIBRIUM',
             'overall_bias': 'NEUTRAL',
             'current_price': 0,
@@ -471,3 +533,4 @@ class SMCICTEngine:
             'setups': [],
             'summary': 'لا توجد بيانات كافية للتحليل',
         }
+

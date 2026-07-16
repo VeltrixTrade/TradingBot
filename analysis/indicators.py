@@ -128,6 +128,7 @@ class TechnicalIndicators:
         result = df.copy()
         result['rsi'] = TechnicalIndicators.calculate_rsi(df)
         result['atr'] = TechnicalIndicators.calculate_atr(df)
+        result['ema_5'] = TechnicalIndicators.calculate_ema(df, 5)
         result['ema_20'] = TechnicalIndicators.calculate_ema(df, 20)
         result['ema_50'] = TechnicalIndicators.calculate_ema(df, 50)
         result['ema_200'] = TechnicalIndicators.calculate_ema(df, 200)
