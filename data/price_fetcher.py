@@ -1,35 +1,48 @@
 """
-Mustafa Bot - TwelveData Exclusive Price Fetcher
-جلب الأسعار والشموع حصرياً ومباشرة من TwelveData كـ مصدر رئيسي وحيد للبوت
+Mustafa Bot - Price Fetcher Engine (TradingView OANDA Edition)
+يجلب الأسعار اللحظية وبيانات الشموع التاريخية مباشرة من TradingView (OANDA)
 """
 
 import logging
-import json
 import urllib.request
+import json
+import time
 from typing import Optional, Dict
 import pandas as pd
+
 from config import Config
 
 logger = logging.getLogger('mustafa_bot.data.price_fetcher')
 
-# ── Symbol → Fallback REST API mapping ──
-DIRECT_API_MAP = {
-    'XAU/USD': {'url': 'https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT', 'key': 'price'},
-    'BTC/USD': {'url': 'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', 'key': 'price'},
-    'ETH/USD': {'url': 'https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', 'key': 'price'},
+# Shared global instance of tvDatafeed to reuse websocket connection
+_tv_client = None
+
+def get_tv_client():
+    global _tv_client
+    if _tv_client is None:
+        try:
+            from tvDatafeed import TvDatafeed
+            # Initialize with no login (completely free public access)
+            _tv_client = TvDatafeed()
+            logger.info("⚡ Shared TradingView tvDatafeed client initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize TradingView tvDatafeed client: {e}")
+    return _tv_client
+
+
+# Map symbol keys to TradingView (ticker, exchange)
+TRADINGVIEW_SYMBOLS = {
+    'XAU/USD': ('XAUUSD', 'OANDA'),
+    'EUR/USD': ('EURUSD', 'OANDA'),
+    'GBP/USD': ('GBPUSD', 'OANDA'),
+    'USD/JPY': ('USDJPY', 'OANDA'),
+    'NAS100': ('NDX', 'NASDAQ'),       # Nasdaq Index
+    'US30': ('US30USD', 'OANDA'),       # Dow Jones Index CFD
+    'BTC/USD': ('BTCUSDT', 'BINANCE'),  # Bitcoin Spot
+    'ETH/USD': ('ETHUSDT', 'BINANCE')   # Ethereum Spot
 }
 
-YFINANCE_MAP = {
-    'XAU/USD': 'PAXG-USD',    # Spot Gold tracker (Pax Gold)
-    'EUR/USD': 'EURUSD=X',    # Spot Forex
-    'GBP/USD': 'GBPUSD=X',    # Spot Forex
-    'USD/JPY': 'USDJPY=X',    # Spot Forex
-    'NAS100': '^NDX',         # Spot Nasdaq 100 Index
-    'US30': '^DJI',           # Spot Dow Jones Index
-    'BTC/USD': 'BTC-USD',     # Spot Bitcoin
-    'ETH/USD': 'ETH-USD',     # Spot Ethereum
-}
-
+# Map symbol keys to TwelveData symbols (preserved for compatibility/metadata reference)
 TWELVEDATA_SYMBOL_MAP = {
     'XAU/USD': 'XAU/USD',
     'EUR/USD': 'EUR/USD',
@@ -38,222 +51,112 @@ TWELVEDATA_SYMBOL_MAP = {
     'NAS100': 'NDX',
     'US30': 'DJI',
     'BTC/USD': 'BTC/USD',
-    'ETH/USD': 'ETH-USD',
+    'ETH/USD': 'ETH/USD',
 }
 
-TWELVEDATA_INTERVAL_MAP = {
-    '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min',
-    '1h': '1h', '4h': '4h', '1d': '1day', '1w': '1week', '1mo': '1month',
-    'm1': '1min', 'm5': '5min', 'm15': '15min', 'm30': '30min',
-    'h1': '1h', 'h4': '4h', 'd1': '1day', 'w1': '1week', 'mn1': '1month'
+# Map standard timeframes to tvDatafeed Intervals
+from tvDatafeed import Interval
+TIMEFRAME_MAP = {
+    '1m': Interval.in_1_minute,
+    '3m': Interval.in_3_minute,
+    '5m': Interval.in_5_minute,
+    '15m': Interval.in_15_minute,
+    '30m': Interval.in_30_minute,
+    '1h': Interval.in_1_hour,
+    '2h': Interval.in_2_hour,
+    '4h': Interval.in_4_hour,
+    '1d': Interval.in_daily,
+    '1w': Interval.in_weekly,
+    '1mo': Interval.in_monthly,
+    
+    # MT5 syntax compatibility
+    'm1': Interval.in_1_minute,
+    'm5': Interval.in_5_minute,
+    'm15': Interval.in_15_minute,
+    'm30': Interval.in_30_minute,
+    'h1': Interval.in_1_hour,
+    'h4': Interval.in_4_hour,
+    'd1': Interval.in_daily,
+    'w1': Interval.in_weekly,
+    'mn1': Interval.in_monthly
 }
 
 
 class PriceFetcher:
-    """Exclusive TwelveData Price Fetcher (with yfinance/Binance fallback)."""
+    """Synchronous market data engine fetching real-time and historical candles directly from TradingView OANDA."""
 
-    def __init__(self, symbol_key: str = 'XAU/USD'):
-        self.symbol_key = symbol_key
+    def __init__(self, symbol_key: str):
+        self.symbol_key = symbol_key  # e.g., 'XAU/USD'
         self._price_source = 'UNKNOWN'
 
-    # ══════════════════════════════════════════════
-    #  LIVE CURRENT PRICE
-    # ══════════════════════════════════════════════
-
-    def get_current_price(self, chat_id: Optional[int] = None) -> Optional[float]:
-        """Get live price via TwelveData, apply calibration offset if needed."""
-        raw_p = self._fetch_raw_current_price()
-        if raw_p and chat_id:
-            from data.price_calibrator import BrokerPriceCalibrator
-            return BrokerPriceCalibrator().apply_offset(raw_p, chat_id, self.symbol_key)
-        return raw_p
-
-    def _fetch_raw_current_price(self) -> Optional[float]:
-        """Fetch price: TwelveData (Primary) → Binance/yfinance (Emergency Fallback)."""
-
-        # ── Source 1: TwelveData API (Exclusive Primary) ──
-        price_td = self._fetch_from_twelvedata()
-        if price_td:
-            self._price_source = 'TWELVEDATA'
-            return price_td
-
-        # ── Source 2: Direct REST API Fallback (Binance for Gold/Crypto) ──
-        price_bin = self._fetch_from_direct_api()
-        if price_bin:
-            self._price_source = 'BINANCE_FALLBACK'
-            return price_bin
-
-        # ── Source 3: yfinance Fallback ──
-        price_yf = self._fetch_from_yfinance()
-        if price_yf:
-            self._price_source = 'YFINANCE_FALLBACK'
-            return price_yf
-
-        logger.error(f"All price sources failed for {self.symbol_key}")
-        return None
-
-    def _fetch_from_twelvedata(self) -> Optional[float]:
-        """Fetch live price from TwelveData API."""
-        apikey = getattr(Config, 'TWELVEDATA_API_KEY', '').strip()
-        if not apikey:
-            logger.warning("TwelveData API key is missing in config.")
+    def get_current_price(self) -> Optional[float]:
+        """Fetch real-time close price directly from TradingView (OANDA) with retries."""
+        client = get_tv_client()
+        if not client:
+            logger.error("tvDatafeed client not available.")
             return None
 
-        td_symbol = TWELVEDATA_SYMBOL_MAP.get(self.symbol_key, self.symbol_key.replace('/', ''))
-        url = f"https://api.twelvedata.com/price?symbol={td_symbol}&apikey={apikey}"
-
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                if 'price' in data:
-                    return float(data['price'])
-                elif 'message' in data:
-                    logger.debug(f"TwelveData price error: {data['message']}")
-        except Exception as e:
-            logger.debug(f"TwelveData API price fetch failed for {self.symbol_key}: {e}")
-        return None
-
-    def _fetch_from_direct_api(self) -> Optional[float]:
-        """Fetch from Binance or free FX REST APIs."""
-        # For Cryptos & Gold via Binance
-        api_info = DIRECT_API_MAP.get(self.symbol_key)
-        if api_info:
-            try:
-                req = urllib.request.Request(api_info['url'], headers={'User-Agent': 'MustafaBot/3.5'})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    return float(data.get(api_info['key'], 0))
-            except Exception as e:
-                logger.debug(f"Direct REST API failed for {self.symbol_key}: {e}")
-
-        # For Forex via free Open Exchange Rates API
-        if self.symbol_key in ['EUR/USD', 'GBP/USD', 'USD/JPY']:
-            try:
-                url = "https://open.er-api.com/v6/latest/USD"
-                req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    rates = data.get('rates', {})
-                    if self.symbol_key == 'EUR/USD' and 'EUR' in rates:
-                        return round(1.0 / rates['EUR'], 5)
-                    elif self.symbol_key == 'GBP/USD' and 'GBP' in rates:
-                        return round(1.0 / rates['GBP'], 5)
-                    elif self.symbol_key == 'USD/JPY' and 'JPY' in rates:
-                        return round(rates['JPY'], 3)
-            except Exception as e:
-                logger.debug(f"Free FX API failed for {self.symbol_key}: {e}")
-
-        return None
-
-    def _fetch_from_yfinance(self) -> Optional[float]:
-        """Fetch from yfinance as last resort fallback using history method."""
-        ticker = YFINANCE_MAP.get(self.symbol_key)
-        if not ticker:
+        tv_info = TRADINGVIEW_SYMBOLS.get(self.symbol_key)
+        if not tv_info:
+            logger.error(f"Symbol {self.symbol_key} is not mapped in TRADINGVIEW_SYMBOLS")
             return None
-        try:
-            import yfinance as yf
-            t = yf.Ticker(ticker)
-            df = t.history(period='1d')
-            if df is not None and not df.empty and 'Close' in df.columns:
-                price = float(df['Close'].iloc[-1])
-                if price > 0:
+
+        symbol, exchange = tv_info
+        for attempt in range(3):
+            try:
+                # Fetch last 1-minute bar to get the absolute latest close price
+                df = client.get_hist(symbol=symbol, exchange=exchange, interval=Interval.in_1_minute, n_bars=1)
+                if df is not None and not df.empty and 'close' in df.columns:
+                    price = float(df['close'].iloc[-1])
+                    self._price_source = f'TRADINGVIEW_{exchange}'
                     return price
-        except Exception as e:
-            logger.debug(f"yfinance failed for {self.symbol_key}: {e}")
+            except Exception as e:
+                logger.warning(f"⚠️ TradingView price fetch attempt {attempt+1} failed for {self.symbol_key}: {e}")
+                time.sleep(1.0)
         return None
-
-    # ══════════════════════════════════════════════
-    #  HISTORICAL CANDLES
-    # ══════════════════════════════════════════════
 
     def get_historical_data(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Fetch historical OHLCV candles: TwelveData (Primary) → yfinance (Fallback)."""
-
-        # ── Source 1: TwelveData API (Exclusive Primary) ──
-        df_td = self._fetch_candles_twelvedata(timeframe, n_bars)
-        if df_td is not None and not df_td.empty:
-            logger.info(f"Fetched {len(df_td)} candles for {self.symbol_key} ({timeframe}) via TwelveData")
-            return df_td
-
-        # ── Source 2: yfinance Fallback ──
-        return self._fetch_candles_yfinance(timeframe, n_bars)
-
-    def _fetch_candles_twelvedata(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Download candles from TwelveData API."""
-        apikey = getattr(Config, 'TWELVEDATA_API_KEY', '').strip()
-        if not apikey:
+        """Fetch historical candles from TradingView (OANDA) with retries."""
+        client = get_tv_client()
+        if not client:
+            logger.error("tvDatafeed client not available.")
             return None
 
-        td_symbol = TWELVEDATA_SYMBOL_MAP.get(self.symbol_key, self.symbol_key.replace('/', ''))
-        td_interval = TWELVEDATA_INTERVAL_MAP.get(timeframe.lower(), '15min')
+        tv_info = TRADINGVIEW_SYMBOLS.get(self.symbol_key)
+        if not tv_info:
+            logger.error(f"Symbol {self.symbol_key} is not mapped in TRADINGVIEW_SYMBOLS")
+            return None
 
-        url = f"https://api.twelvedata.com/time_series?symbol={td_symbol}&interval={td_interval}&outputsize={n_bars}&apikey={apikey}"
+        symbol, exchange = tv_info
+        tv_interval = TIMEFRAME_MAP.get(timeframe.lower())
+        if not tv_interval:
+            logger.warning(f"Unsupported timeframe: {timeframe}")
+            return None
 
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                if 'values' in data and data['values']:
-                    df = pd.DataFrame(data['values'])
-                    df['time'] = pd.to_datetime(df['datetime'])
-                    df.set_index('time', inplace=True)
-                    df = df.iloc[::-1]  # Reverse to ascending order
+        for attempt in range(3):
+            try:
+                df = client.get_hist(symbol=symbol, exchange=exchange, interval=tv_interval, n_bars=n_bars)
+                if df is not None and not df.empty:
+                    df = df.copy()
+                    df.index.name = 'time'
                     
+                    # Format to match the engine expectations: open, high, low, close, tick_volume
                     if 'volume' in df.columns:
-                        df = df.rename(columns={'volume': 'tick_volume'})
+                        df.rename(columns={'volume': 'tick_volume'}, inplace=True)
                     else:
-                        df['tick_volume'] = 0
+                        df['tick_volume'] = 0.0
 
+                    # Ensure all numeric columns are float
                     for col in ['open', 'high', 'low', 'close', 'tick_volume']:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors='coerce')
                     
-                    return df[['open', 'high', 'low', 'close', 'tick_volume']].dropna()
-                elif 'message' in data:
-                    logger.debug(f"TwelveData candles error: {data['message']}")
-        except Exception as e:
-            logger.debug(f"TwelveData API candles fetch failed for {self.symbol_key}: {e}")
-        return None
-
-    def _fetch_candles_yfinance(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Download candles from yfinance as fallback."""
-        ticker = YFINANCE_MAP.get(self.symbol_key)
-        if not ticker:
-            return None
-
-        tf_map = {
-            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
-            '1h': '1h', '4h': '1h', '1d': '1d', '1w': '1wk', '1mo': '1mo',
-            'm1': '1m', 'm5': '5m', 'm15': '15m', 'm30': '30m',
-            'h1': '1h', 'h4': '1h', 'd1': '1d', 'w1': '1wk', 'mn1': '1mo'
-        }
-        yf_tf = tf_map.get(timeframe.lower(), '15m')
-
-        period_map = {
-            '1m': '1d', '5m': '5d', '15m': '5d', '30m': '10d',
-            '1h': '30d', '1d': '1y', '1wk': '2y', '1mo': '5y'
-        }
-        period = period_map.get(yf_tf, '5d')
-
-        try:
-            import yfinance as yf
-            t = yf.Ticker(ticker)
-            df = t.history(period=period, interval=yf_tf)
-            if df is not None and not df.empty:
-                df.columns = [c.lower() for c in df.columns]
-                for col in ['open', 'high', 'low', 'close']:
-                    if col not in df.columns:
-                        return None
-                if 'volume' in df.columns:
-                    df.rename(columns={'volume': 'tick_volume'}, inplace=True)
-                else:
-                    df['tick_volume'] = 0
-                cols = [c for c in ['open', 'high', 'low', 'close', 'tick_volume'] if c in df.columns]
-                logger.info(f"Fetched {len(df)} candles for {self.symbol_key} ({timeframe}) via yfinance fallback")
-                return df[cols].tail(n_bars)
-        except Exception as e:
-            logger.debug(f"yfinance candles failed for {self.symbol_key}: {e}")
+                    cols = ['open', 'high', 'low', 'close', 'tick_volume']
+                    logger.info(f"Fetched {len(df)} candles for {self.symbol_key} ({timeframe}) via TradingView {exchange}")
+                    return df[cols].dropna()
+            except Exception as e:
+                logger.warning(f"⚠️ TradingView candles fetch attempt {attempt+1} failed for {self.symbol_key} ({timeframe}): {e}")
+                time.sleep(1.0)
         return None
 
     def get_multi_timeframe_data(self, timeframes: list = None) -> Dict[str, pd.DataFrame]:
