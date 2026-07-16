@@ -381,7 +381,7 @@ class BotCommands:
         self.db.save_mt5_account(chat_id, broker, server, login, enc_pwd)
 
         # Test login connection via MT5 Connection Manager
-        success = self.mt5_mgr.connect()
+        success = self.mt5_mgr.connect(chat_id=chat_id)
         self.mt5_wizard.reset_wizard(chat_id)
 
         if success:
