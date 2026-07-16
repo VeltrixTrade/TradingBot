@@ -557,16 +557,33 @@ class BotCommands:
             await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء إجراء التحليل.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _run_interactive_market_analysis(self, chat_id: int, bot, symbol_key: str) -> None:
-        await self.msg_manager.send_or_edit(bot, chat_id, f"📊 *{symbol_key}*:\n\n🔄 Scanning MT5 structure and indicators...")
-        await asyncio.sleep(0.4)
+        await self.msg_manager.send_or_edit(bot, chat_id, f"📊 *{symbol_key}*:\n\n🤖 *جاري قراءة الشارت والتكات المباشرة من حساب MT5 بواسطة AI...* ⏳")
+        await asyncio.sleep(0.5)
         try:
-            analysis_msg = await self.signal_engine.get_market_analysis(symbol_key=symbol_key)
+            from analytics.ai_chart_analyzer import AIChartAnalyzer
+            ai_agent = AIChartAnalyzer()
+            profile_key = self._get_user_profile(chat_id)
+            res = await ai_agent.analyze_live_mt5_chart(symbol_key=symbol_key, timeframe='15m', selectivity_profile=profile_key)
+
+            acc_info = res.get('account_info', {})
+            login_str = acc_info.get('login', 'MT5 Live Feed')
+
+            header = (
+                f"🤖 *تحليل الشارت والبيانات المباشرة عبر AI & MT5*\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📈 الرمز: *{symbol_key}* | الحساب: `{login_str}`\n"
+                f"💲 سعر MT5 المباشر: `{res.get('current_price')}`\n"
+                f"📡 Bid: `{res.get('mt5_bid')}` | Ask: `{res.get('mt5_ask')}` | Spread: `{res.get('mt5_spread')}` pips\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            )
+            analysis_msg = header + res.get('ai_analysis', 'تم إكمال قراءة الشارت بنجاح.')
+
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
             await self.msg_manager.send_or_edit(bot, chat_id, analysis_msg, reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
-            logger.error(f"Interactive market analysis error: {e}")
+            logger.error(f"Interactive market analysis error: {e}", exc_info=True)
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
-            await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء جلب تحليل السوق.*", reply_markup=InlineKeyboardMarkup(keyboard))
+            await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء قراءة شارت MT5 عبر الذكاء الاصطناعي.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _run_interactive_prediction(self, chat_id: int, bot, symbol_key: str) -> None:
         await self.msg_manager.send_or_edit(bot, chat_id, f"🔮 *{symbol_key}*:\n\n🔄 Processing predictions via institutional AI models...")
