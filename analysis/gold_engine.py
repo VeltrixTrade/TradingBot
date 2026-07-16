@@ -157,6 +157,14 @@ class GoldMarketAnalysisEngine:
                 invalidation_price = stop_loss
                 invalidation_reason = f"Price closes beyond stop loss at {stop_loss:.2f} or opposite Market Structure Shift (MSS) occurs."
 
+                # Dynamic Risk Percent based on volatility
+                vol_status = exec_analysis['indicators']['volatility']
+                risk_pct = "1.0%"
+                if vol_status == 'HIGH':
+                    risk_pct = "0.5% (Reduced due to High Volatility)"
+                elif vol_status == 'VERY_HIGH':
+                    risk_pct = "0.25% (Reduced due to Extreme Volatility)"
+
                 inst_setup = {
                     'direction': direction,
                     'entry': entry,
@@ -164,7 +172,7 @@ class GoldMarketAnalysisEngine:
                     'tp1': tp1,
                     'tp2': tp2,
                     'tp3': tp3,
-                    'risk_pct': "1.0%",
+                    'risk_pct': risk_pct,
                     'risk_reward': round(rr, 2),
                     'market_bias': overall_htf_bias,
                     'trend_direction': exec_analysis['overall_bias'],
@@ -179,7 +187,7 @@ class GoldMarketAnalysisEngine:
                     'institutional_confirmation': f"Score: {score} | Grade: {inst_grade} | Harmony: {overall_htf_bias}",
                     'momentum_analysis': f"RSI: {exec_analysis['indicators']['rsi']:.1f} | ATR: {exec_analysis['indicators']['atr']:.2f}",
                     'session_analysis': session_text,
-                    'volatility_analysis': f"Volatility: {exec_analysis['indicators']['volatility']} | ATR: {exec_analysis['indicators']['atr']:.2f}",
+                    'volatility_analysis': f"Volatility: {vol_status} | ATR: {exec_analysis['indicators']['atr']:.2f}",
                     'score': score,
                     'confidence': score,
                     'inst_grade': inst_grade,
@@ -198,7 +206,7 @@ class GoldMarketAnalysisEngine:
             'fake_breakout': fake_breakout,
             'overall_htf_bias': overall_htf_bias,
             'setups': institutional_setups,
-            'status': "SUCCESS" if institutional_setups else "NO_VALID_SETUP"
+            'status': "SUCCESS" if institutional_setups else "NO_TRADE_YET"
         }
 
     # ─────────────────────────────────────────────
