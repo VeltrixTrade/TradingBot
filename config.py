@@ -63,6 +63,7 @@ class Config:
     DEEPSEEK_API_KEY: str = os.getenv('DEEPSEEK_API_KEY', '')
     GEMINI_API_KEY: str = os.getenv('GEMINI_API_KEY', '')
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    TWELVEDATA_API_KEY: str = os.getenv('TWELVEDATA_API_KEY', 'ff971b5e0d7b469b8dc21d93817b2de7')
 
     # ── AI Model Names ──
     DEEPSEEK_MODEL: str = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')

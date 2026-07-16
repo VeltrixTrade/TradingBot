@@ -1,6 +1,6 @@
 """
 Mustafa Bot - Smart Multi-Source Price Fetcher
-جلب الأسعار عبر 3 مستويات: (1) MT5 Native → (2) Bridge API → (3) Direct REST APIs (Binance/FX)
+جلب الأسعار عبر 4 مستويات: (1) MT5 Native → (2) MT5 Bridge API → (3) TwelveData API (Premium) → (4) yfinance & Binance Fallbacks
 """
 
 import logging
@@ -32,9 +32,27 @@ YFINANCE_MAP = {
     'ETH/USD': 'ETH-USD',
 }
 
+TWELVEDATA_SYMBOL_MAP = {
+    'XAU/USD': 'XAU/USD',
+    'EUR/USD': 'EUR/USD',
+    'GBP/USD': 'GBP/USD',
+    'USD/JPY': 'USD/JPY',
+    'NAS100': 'NDX',
+    'US30': 'DJI',
+    'BTC/USD': 'BTC/USD',
+    'ETH/USD': 'ETH/USD',
+}
+
+TWELVEDATA_INTERVAL_MAP = {
+    '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min',
+    '1h': '1h', '4h': '4h', '1d': '1day', '1w': '1week', '1mo': '1month',
+    'm1': '1min', 'm5': '5min', 'm15': '15min', 'm30': '30min',
+    'h1': '1h', 'h4': '4h', 'd1': '1day', 'w1': '1week', 'mn1': '1month'
+}
+
 
 class PriceFetcher:
-    """Multi-source price fetcher: MT5 Native → Bridge API → Direct REST APIs."""
+    """Multi-source price fetcher: MT5 Native → Bridge API → TwelveData → Binance/yfinance."""
 
     def __init__(self, symbol_key: str = 'XAU/USD'):
         self.symbol_key = symbol_key
@@ -57,7 +75,7 @@ class PriceFetcher:
         return raw_p
 
     def _fetch_raw_current_price(self) -> Optional[float]:
-        """Try all sources in priority order: MT5 Native → Bridge → Direct REST APIs."""
+        """Try all sources in priority order: MT5 Native → Bridge → TwelveData → Direct REST APIs → yfinance."""
 
         # ── Source 1: MT5 Native or Bridge (via MT5ConnectionManager) ──
         try:
@@ -68,19 +86,46 @@ class PriceFetcher:
         except Exception as e:
             logger.debug(f"MT5/Bridge price fetch failed for {self.symbol_key}: {e}")
 
-        # ── Source 2: Direct REST API (Binance for Gold/Crypto) ──
-        price = self._fetch_from_direct_api()
-        if price:
-            self._price_source = 'DIRECT_REST_API'
-            return price
+        # ── Source 2: TwelveData API (Premium Integration) ──
+        price_td = self._fetch_from_twelvedata()
+        if price_td:
+            self._price_source = 'TWELVEDATA'
+            return price_td
 
-        # ── Source 3: yfinance as last resort ──
-        price = self._fetch_from_yfinance()
-        if price:
+        # ── Source 3: Direct REST API (Binance for Gold/Crypto) ──
+        price_bin = self._fetch_from_direct_api()
+        if price_bin:
+            self._price_source = 'DIRECT_REST_API'
+            return price_bin
+
+        # ── Source 4: yfinance fallback ──
+        price_yf = self._fetch_from_yfinance()
+        if price_yf:
             self._price_source = 'YFINANCE'
-            return price
+            return price_yf
 
         logger.error(f"All price sources failed for {self.symbol_key}")
+        return None
+
+    def _fetch_from_twelvedata(self) -> Optional[float]:
+        """Fetch live price from TwelveData API."""
+        apikey = getattr(Config, 'TWELVEDATA_API_KEY', '').strip()
+        if not apikey:
+            return None
+
+        td_symbol = TWELVEDATA_SYMBOL_MAP.get(self.symbol_key, self.symbol_key.replace('/', ''))
+        url = f"https://api.twelvedata.com/price?symbol={td_symbol}&apikey={apikey}"
+
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if 'price' in data:
+                    return float(data['price'])
+                elif 'message' in data:
+                    logger.debug(f"TwelveData price error: {data['message']}")
+        except Exception as e:
+            logger.debug(f"TwelveData API price fetch failed for {self.symbol_key}: {e}")
         return None
 
     def _fetch_from_direct_api(self) -> Optional[float]:
@@ -118,7 +163,7 @@ class PriceFetcher:
     # ══════════════════════════════════════════════
 
     def get_historical_data(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Fetch historical OHLCV candles: MT5/Bridge first, then yfinance fallback."""
+        """Fetch historical OHLCV candles: MT5/Bridge → TwelveData → yfinance."""
 
         # ── Source 1: MT5 Native or Bridge ──
         try:
@@ -133,8 +178,51 @@ class PriceFetcher:
         except Exception as e:
             logger.debug(f"MT5/Bridge candles failed for {self.symbol_key} ({timeframe}): {e}")
 
-        # ── Source 2: yfinance fallback ──
+        # ── Source 2: TwelveData API (Premium Integration) ──
+        df_td = self._fetch_candles_twelvedata(timeframe, n_bars)
+        if df_td is not None and not df_td.empty:
+            logger.info(f"Fetched {len(df_td)} candles for {self.symbol_key} ({timeframe}) via TwelveData")
+            return df_td
+
+        # ── Source 3: yfinance fallback ──
         return self._fetch_candles_yfinance(timeframe, n_bars)
+
+    def _fetch_candles_twelvedata(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
+        """Download candles from TwelveData API."""
+        apikey = getattr(Config, 'TWELVEDATA_API_KEY', '').strip()
+        if not apikey:
+            return None
+
+        td_symbol = TWELVEDATA_SYMBOL_MAP.get(self.symbol_key, self.symbol_key.replace('/', ''))
+        td_interval = TWELVEDATA_INTERVAL_MAP.get(timeframe.lower(), '15min')
+
+        url = f"https://api.twelvedata.com/time_series?symbol={td_symbol}&interval={td_interval}&outputsize={n_bars}&apikey={apikey}"
+
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if 'values' in data and data['values']:
+                    df = pd.DataFrame(data['values'])
+                    df['time'] = pd.to_datetime(df['datetime'])
+                    df.set_index('time', inplace=True)
+                    df = df.iloc[::-1]  # Reverse to ascending order
+                    
+                    if 'volume' in df.columns:
+                        df = df.rename(columns={'volume': 'tick_volume'})
+                    else:
+                        df['tick_volume'] = 0
+
+                    for col in ['open', 'high', 'low', 'close', 'tick_volume']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    return df[['open', 'high', 'low', 'close', 'tick_volume']].dropna()
+                elif 'message' in data:
+                    logger.debug(f"TwelveData candles error: {data['message']}")
+        except Exception as e:
+            logger.debug(f"TwelveData API candles fetch failed for {self.symbol_key}: {e}")
+        return None
 
     def _fetch_candles_yfinance(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
         """Download candles from yfinance as fallback."""
