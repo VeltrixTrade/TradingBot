@@ -91,10 +91,15 @@ class ParallelStrategyManager:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
+        from data.futures_spot_converter import FuturesSpotConverter
+        converter = FuturesSpotConverter()
+
         valid_setups = []
         for r in results:
             if isinstance(r, dict) and r is not None:
-                r['validation_info'] = f"TradingView Validated ✅ (Diff: {val_res.discrepancy_pips:.2f} pips | Spread: {val_res.spread_pips:.1f} pips)"
-                valid_setups.append(r)
+                # Convert Futures levels to live Spot market prices
+                spot_r = converter.convert_setup_to_spot(r, symbol_key=symbol)
+                spot_r['validation_info'] = f"TradingView Validated ✅ (Diff: {val_res.discrepancy_pips:.2f} pips | Spread: {val_res.spread_pips:.1f} pips)"
+                valid_setups.append(spot_r)
 
         return valid_setups

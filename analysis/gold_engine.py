@@ -206,7 +206,12 @@ class GoldMarketAnalysisEngine:
                     'invalidation': invalidation_reason,
                     'reasoning': self._build_detailed_reasoning_new(direction, details, score, inst_grade, invalidation_reason)
                 }
-                institutional_setups.append(inst_setup)
+
+                from data.futures_spot_converter import FuturesSpotConverter
+                converter = FuturesSpotConverter()
+                spot_inst_setup = converter.convert_setup_to_spot(inst_setup, symbol_key=symbol_key)
+
+                institutional_setups.append(spot_inst_setup)
 
         return {
             'tfs_analyses': tfs_analyses,
