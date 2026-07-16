@@ -90,6 +90,46 @@ class DatabaseManager:
                     updated_at TEXT NOT NULL
                 );
                 """)
+
+                # Users Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    chat_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """)
+
+                # Bot Settings Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """)
+
+                # Bot Templates Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bot_templates (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """)
+
+                # Admin Action Logs Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS admin_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admin_id INTEGER,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    result TEXT
+                );
+                """)
+
                 conn.commit()
                 logger.info("💾 Database schema initialized successfully")
         except Exception as e:
@@ -279,3 +319,171 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error deleting MT5 credentials from DB: {e}")
             return False
+
+    # ── User Tracking Management ──
+
+    def register_user(self, chat_id: int, username: Optional[str] = None, first_name: Optional[str] = None, last_name: Optional[str] = None) -> bool:
+        """Register a user in the database."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                cursor.execute("""
+                INSERT INTO users (chat_id, username, first_name, last_name, status, created_at)
+                VALUES (?, ?, ?, ?, 'active', ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    username = excluded.username,
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name
+                """, (chat_id, username, first_name, last_name, now_str))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error registering user: {e}")
+            return False
+
+    def get_users_count(self) -> int:
+        """Get total user count."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM users")
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Error counting users: {e}")
+            return 0
+
+    def get_today_users_count(self) -> int:
+        """Get count of users registered today."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                today_prefix = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                cursor.execute("SELECT COUNT(*) FROM users WHERE created_at LIKE ?", (f"{today_prefix}%",))
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Error counting today's users: {e}")
+            return 0
+
+    def get_active_users(self) -> List[Dict]:
+        """Fetch all active users."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE status = 'active'")
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching active users: {e}")
+            return []
+
+    def get_all_users(self) -> List[Dict]:
+        """Fetch all users."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users")
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching all users: {e}")
+            return []
+
+    def update_user_status(self, chat_id: int, status: str) -> bool:
+        """Update a user status (active/blocked)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE users SET status = ? WHERE chat_id = ?", (status, chat_id))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error updating user status: {e}")
+            return False
+
+    # ── Bot Settings Management ──
+
+    def save_setting(self, key: str, value: str) -> bool:
+        """Save a setting value."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                INSERT INTO bot_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """, (key, value))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error saving setting {key}: {e}")
+            return False
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Fetch a setting value."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM bot_settings WHERE key = ?", (key,))
+                row = cursor.fetchone()
+                return row['value'] if row else default
+        except Exception as e:
+            logger.error(f"Error fetching setting {key}: {e}")
+            return default
+
+    # ── Bot Templates Management ──
+
+    def save_template(self, key: str, value: str) -> bool:
+        """Save a message template."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                INSERT INTO bot_templates (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """, (key, value))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error saving template {key}: {e}")
+            return False
+
+    def get_template(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Fetch a template value."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM bot_templates WHERE key = ?", (key,))
+                row = cursor.fetchone()
+                return row['value'] if row else default
+        except Exception as e:
+            logger.error(f"Error fetching template {key}: {e}")
+            return default
+
+    # ── Security & Action Logging ──
+
+    def log_admin_action(self, admin_id: int, action: str, result: str) -> bool:
+        """Log an administrative action."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                cursor.execute("""
+                INSERT INTO admin_logs (admin_id, timestamp, action, result)
+                VALUES (?, ?, ?, ?)
+                """, (admin_id, now_str, action, result))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error logging admin action: {e}")
+            return False
+
+    def get_admin_logs(self, limit: int = 50) -> List[Dict]:
+        """Fetch administrative action logs."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM admin_logs ORDER BY timestamp DESC LIMIT ?", (limit,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching admin logs: {e}")
+            return []

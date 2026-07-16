@@ -18,6 +18,7 @@ class Config:
     # ── Telegram ──
     TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '') or os.getenv('TELEGRAM_CHANNEL_ID', '')
+    ADMIN_IDS: list = [int(x) for x in os.getenv('ADMIN_IDS', '5897858682').split(',') if x.strip().isdigit()]
 
     # ── MetaTrader 5 (MT5) Configuration ──
     MT5_LOGIN: int = int(os.getenv('MT5_LOGIN', 0)) if os.getenv('MT5_LOGIN', '').isdigit() else 0

@@ -126,6 +126,11 @@ class MessageFormatter:
     @staticmethod
     def format_welcome() -> str:
         """Format welcome message for /start command."""
+        from database.db_manager import DatabaseManager
+        db_msg = DatabaseManager().get_template('welcome_message')
+        if db_msg:
+            return db_msg
+
         msg = """━━━━━━━━━━━━━━━━━━━━
 💎 بوت إشارات الذهب بالذكاء الاصطناعي
 

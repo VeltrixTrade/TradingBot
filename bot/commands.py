@@ -48,7 +48,10 @@ class BotCommands:
         return self.user_profiles.get(chat_id, Config.DEFAULT_PROFILE)
 
     async def get_main_menu(self, chat_id: int, bot) -> None:
-        """Render the persistent dashboard main menu screen."""
+        """Render the persistent dashboard main menu screen with admin button detection."""
+        # Track/Register user
+        self.db.register_user(chat_id)
+        
         welcome = self.formatter.format_welcome()
         keyboard = [
             [
@@ -58,6 +61,10 @@ class BotCommands:
                 InlineKeyboardButton("🤖 Chat with AI", callback_data="btn_chat")
             ]
         ]
+        if chat_id in Config.ADMIN_IDS:
+            keyboard.append([
+                InlineKeyboardButton("🛠 Admin Panel", callback_data="btn_admin_panel")
+            ])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await self.msg_manager.send_or_edit(bot, chat_id, welcome, reply_markup)
 
@@ -187,7 +194,99 @@ class BotCommands:
             await self.msg_manager.send_or_edit(context.bot, chat_id, wizard_msg, reply_markup=InlineKeyboardMarkup(keyboard))
             return
 
+        # Register user on message input
+        self.db.register_user(chat_id, update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+
         current_state = self.user_states.get(user_id, 'MAIN_MENU')
+
+        # Admin input routing and protection
+        if current_state.startswith("admin_"):
+            if chat_id not in Config.ADMIN_IDS:
+                logger.warning(f"Unauthorized admin text input from chat_id={chat_id}")
+                return
+            
+            # Reset state back to MAIN_MENU
+            self.user_states[user_id] = 'MAIN_MENU'
+            
+            try:
+                if current_state == 'admin_edit_welcome':
+                    self.db.save_template('welcome_message', text)
+                    self.db.log_admin_action(chat_id, "EDIT_WELCOME_TPL", "SUCCESS")
+                    await self._show_admin_panel(chat_id, context.bot)
+
+                elif current_state == 'admin_edit_analysis':
+                    self.db.save_template('market_analysis', text)
+                    self.db.log_admin_action(chat_id, "EDIT_ANALYSIS_TPL", "SUCCESS")
+                    await self._show_admin_panel(chat_id, context.bot)
+
+                elif current_state == 'admin_edit_signal':
+                    self.db.save_template('instant_signal', text)
+                    self.db.log_admin_action(chat_id, "EDIT_SIGNAL_TPL", "SUCCESS")
+                    await self._show_admin_panel(chat_id, context.bot)
+
+                elif current_state == 'admin_broadcast_msg':
+                    self.db.save_setting('pending_broadcast', text)
+                    confirm_text = (
+                        f"📢 *معاينة الرسالة المراد بثها لجميع الأعضاء*:\n━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{text}\n━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⚠️ هل أنت متأكد من رغبتك في بث هذه الرسالة الآن؟"
+                    )
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("✅ نعم، بث الآن", callback_data="admin_confirm_broadcast"),
+                            InlineKeyboardButton("❌ إلغاء", callback_data="admin_cancel_broadcast")
+                        ]
+                    ]
+                    await self.msg_manager.send_or_edit(context.bot, chat_id, confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+                elif current_state == 'admin_add_symbol':
+                    import json
+                    sym_data = json.loads(text)
+                    sym_key = sym_data['symbol']
+                    Config.SUPPORTED_SYMBOLS[sym_key] = {
+                        'symbol_id': sym_key,
+                        'display': sym_data.get('display', sym_key),
+                        'category': sym_data.get('category', 'FOREX'),
+                        'tradingview_symbol': sym_data.get('tradingview_symbol', sym_key.replace('/', '')),
+                        'tradingview_exchange': sym_data.get('tradingview_exchange', 'OANDA'),
+                        'pip_multiplier': sym_data.get('pip_multiplier', 0.0001),
+                        'default_spread': sym_data.get('default_spread', 0.3),
+                        'decimal_places': sym_data.get('decimal_places', 5)
+                    }
+                    try:
+                        with open(Config.SYMBOLS_FILE_PATH, 'w', encoding='utf-8') as f:
+                            json.dump(Config.SUPPORTED_SYMBOLS, f, indent=4)
+                    except Exception as e:
+                        logger.error(f"Failed to persist symbols.json: {e}")
+                    
+                    self.db.log_admin_action(chat_id, f"ADD_SYMBOL: {sym_key}", "SUCCESS")
+                    await self._show_admin_symbols_manager(chat_id, context.bot)
+
+                elif current_state == 'admin_set_min_score':
+                    self.db.save_setting('min_score', text)
+                    self.db.log_admin_action(chat_id, "SET_MIN_SCORE", f"SUCCESS ({text})")
+                    await self._show_admin_settings_menu(chat_id, context.bot)
+
+                elif current_state == 'admin_set_min_rr':
+                    self.db.save_setting('min_rr', text)
+                    self.db.log_admin_action(chat_id, "SET_MIN_RR", f"SUCCESS ({text})")
+                    await self._show_admin_settings_menu(chat_id, context.bot)
+
+                elif current_state == 'admin_set_cooldown':
+                    self.db.save_setting('cooldown', text)
+                    self.db.log_admin_action(chat_id, "SET_COOLDOWN", f"SUCCESS ({text})")
+                    await self._show_admin_settings_menu(chat_id, context.bot)
+
+                elif current_state == 'admin_set_max_signals':
+                    self.db.save_setting('max_signals', text)
+                    self.db.log_admin_action(chat_id, "SET_MAX_SIGNALS", f"SUCCESS ({text})")
+                    await self._show_admin_settings_menu(chat_id, context.bot)
+            except Exception as e:
+                logger.error(f"Admin action input error: {e}")
+                keyboard = [[InlineKeyboardButton("⬅ Back to Panel", callback_data="btn_admin_panel")]]
+                await self.msg_manager.send_or_edit(context.bot, chat_id, f"❌ *حدث خطأ أثناء معالجة مدخلات المشرف:* {e}", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
         if current_state == 'chat':
             await self.msg_manager.send_or_edit(context.bot, chat_id, "🤔 *جاري تفكير المستشار الذكي...* ⏳")
             try:
@@ -212,12 +311,22 @@ class BotCommands:
                 await self.msg_manager.send_or_edit(context.bot, chat_id, "❌ *حدث خطأ أثناء الرد.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle all button callback queries."""
+        """Handle all button callback queries with admin security check."""
         query = update.callback_query
         await query.answer()
         data = query.data
         chat_id = query.message.chat_id
         user_id = query.from_user.id
+
+        # Register user on callback action
+        self.db.register_user(chat_id, query.from_user.username, query.from_user.first_name, query.from_user.last_name)
+
+        # Security check for admin callbacks
+        if "admin" in data:
+            if chat_id not in Config.ADMIN_IDS:
+                logger.warning(f"Unauthorized admin callback access from chat_id={chat_id} (Payload: {data})")
+                self.db.log_admin_action(chat_id, f"CALLBACK_INTRUSION: {data}", "BLOCKED")
+                return
 
         # 1. Navigation & Screens
         if data == "btn_home":
@@ -267,15 +376,83 @@ class BotCommands:
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
             await self.msg_manager.send_or_edit(context.bot, chat_id, chat_welcome, reply_markup=InlineKeyboardMarkup(keyboard))
 
-        elif data == "get_scalp":
-            if not await self.check_user_symbol(chat_id, context.bot, 'get_scalp'): return
-            symbol_key = self.user_symbols[chat_id]
-            await self._run_interactive_analysis(chat_id, context.bot, 'SCALP', symbol_key)
+        # 5. Admin Panel Routing
+        elif data == "btn_admin_panel":
+            await self._show_admin_panel(chat_id, context.bot)
 
-        elif data == "get_swing":
-            if not await self.check_user_symbol(chat_id, context.bot, 'get_swing'): return
-            symbol_key = self.user_symbols[chat_id]
-            await self._run_interactive_analysis(chat_id, context.bot, 'SWING', symbol_key)
+        elif data == "admin_menu_templates":
+            await self._show_admin_templates(chat_id, context.bot)
+
+        elif data.startswith("admin_edit_template:"):
+            tpl_key = data.split(":")[1]
+            await self._show_admin_edit_template_prompt(chat_id, context.bot, tpl_key)
+
+        elif data == "admin_menu_settings":
+            await self._show_admin_settings_menu(chat_id, context.bot)
+
+        elif data.startswith("admin_set_param:"):
+            param_key = data.split(":")[1]
+            await self._show_admin_set_param_prompt(chat_id, context.bot, param_key)
+
+        elif data == "admin_menu_symbols":
+            await self._show_admin_symbols_manager(chat_id, context.bot)
+
+        elif data.startswith("admin_toggle_sym:"):
+            sym_key = data.split(":")[1]
+            if sym_key in Config.SUPPORTED_SYMBOLS:
+                is_disabled = Config.SUPPORTED_SYMBOLS[sym_key].get('disabled', False)
+                Config.SUPPORTED_SYMBOLS[sym_key]['disabled'] = not is_disabled
+                self.db.log_admin_action(chat_id, f"TOGGLE_SYMBOL: {sym_key}", f"SUCCESS (Disabled: {not is_disabled})")
+            await self._show_admin_symbols_manager(chat_id, context.bot)
+
+        elif data == "admin_add_sym_prompt":
+            self.user_states[user_id] = 'admin_add_symbol'
+            text = (
+                "➕ *إضافة رمز تداول جديد (Add Symbol)*:\n━━━━━━━━━━━━━━━━━━━━\n"
+                "يرجى كتابة بيانات الرمز الجديد بالصيغة التالية (JSON):\n"
+                "`{\"symbol\": \"EUR/USD\", \"display\": \"🇪🇺 EUR/USD\", \"tradingview_symbol\": \"EURUSD\", \"tradingview_exchange\": \"OANDA\"}`"
+            )
+            keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="admin_menu_symbols")]]
+            await self.msg_manager.send_or_edit(context.bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        elif data == "admin_menu_broadcast":
+            await self._show_admin_broadcast_prompt(chat_id, context.bot)
+
+        elif data == "admin_confirm_broadcast":
+            bc_msg = self.db.get_setting('pending_broadcast')
+            if bc_msg:
+                active_users = self.db.get_active_users()
+                success_count = 0
+                for u in active_users:
+                    try:
+                        await context.bot.send_message(chat_id=u['chat_id'], text=bc_msg)
+                        success_count += 1
+                        await asyncio.sleep(0.05)
+                    except Exception as e:
+                        logger.warning(f"Failed to broadcast to {u['chat_id']}: {e}")
+                self.db.save_setting('pending_broadcast', '')
+                self.db.log_admin_action(chat_id, "BROADCAST_MESSAGE", f"SUCCESS (Sent to {success_count}/{len(active_users)})")
+                res_text = f"✅ *تم بث الرسالة بنجاح لـ {success_count} مستخدمين نشطين!*"
+            else:
+                res_text = "❌ لا توجد رسالة معلقة للبث."
+            keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
+            await self.msg_manager.send_or_edit(context.bot, chat_id, res_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        elif data == "admin_cancel_broadcast":
+            self.db.save_setting('pending_broadcast', '')
+            await self._show_admin_panel(chat_id, context.bot)
+
+        elif data == "admin_menu_stats":
+            await self._show_admin_stats(chat_id, context.bot)
+
+        elif data == "admin_menu_logs":
+            await self._show_admin_logs_panel(chat_id, context.bot)
+
+        elif data == "admin_restart_services":
+            self.diagnostics.update_data_feed_status("RESTARTED (TradingView Live OANDA)")
+            self.db.log_admin_action(chat_id, "RESTART_SERVICES", "SUCCESS")
+            keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
+            await self.msg_manager.send_or_edit(context.bot, chat_id, "🔄 *تم إعادة تشغيل الخدمات وتحديث تغذية الأسعار بنجاح!*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     # ─────────────────────────────────────────────
     # MT5 Wizard Execution & Dashboard Screens
@@ -471,6 +648,31 @@ class BotCommands:
         recommendation = "STRONG BUY 🚀" if (trend_15m == "BULLISH 🟢" and confidence > 90) else "STRONG SELL 📉" if (trend_15m == "BEARISH 🔴" and confidence > 90) else "NEUTRAL ↔️"
         risk_assess = "Low Risk - Structure aligned" if confidence > 90 else "Moderate Risk - Timeframe divergence"
         
+        from database.db_manager import DatabaseManager
+        db_tpl = DatabaseManager().get_template('market_analysis')
+        if db_tpl:
+            map_data = {
+                'symbol': symbol_key,
+                'current_price': f"{curr_price:.2f}",
+                'current_trend': current_trend,
+                'structure': structure,
+                'liquidity': liquidity,
+                'order_blocks': order_blocks,
+                'fvg': fvg,
+                'support': f"{s1:.2f}",
+                'resistance': f"{r1:.2f}",
+                'entry_zone': entry_zone,
+                'risk_assess': risk_assess,
+                'confidence': f"{confidence}%",
+                'spread': spread_pips,
+                'market_status': market_status,
+                'recommendation': recommendation
+            }
+            res = db_tpl
+            for k, v in map_data.items():
+                res = res.replace(f"{{{k}}}", str(v))
+            return res
+
         analysis_report = f"""📊 *Scalping Market Analysis | {symbol_key}*
 ━━━━━━━━━━━━━━━━━━━━
 💲 *Current Price*: `{curr_price:.2f}`
@@ -571,7 +773,30 @@ class BotCommands:
                 score = valid_setup['score']
                 reason = valid_setup.get('reasoning', 'Structure alignment and FVG confirmation')
 
-                signal_msg = f"""⚡ *Premium Scalping Signal | {symbol_key}*
+                from database.db_manager import DatabaseManager
+                db_tpl = DatabaseManager().get_template('instant_signal')
+                if db_tpl:
+                    map_data = {
+                        'symbol': symbol_key,
+                        'direction': "BUY 🟢" if direction == "BUY" else "SELL 🔴",
+                        'entry': f"{entry:.{decimals}f}",
+                        'stop_loss': f"{sl:.{decimals}f}",
+                        'tp1': f"{tp1:.{decimals}f}",
+                        'tp2': f"{tp2:.{decimals}f}",
+                        'tp3': f"{tp3:.{decimals}f}",
+                        'risk_reward': f"1:{rr:.1f}",
+                        'confidence': f"{score}%",
+                        'spread': spread_pips,
+                        'expiration': "1 Hour (Immediate execution only)",
+                        'holding_time': "15 - 45 Minutes (Scalp)",
+                        'market_conditions': f"Trend aligned on M15, active session: {session_text}",
+                        'reason_entry': reason
+                    }
+                    signal_msg = db_tpl
+                    for k, v in map_data.items():
+                        signal_msg = signal_msg.replace(f"{{{k}}}", str(v))
+                else:
+                    signal_msg = f"""⚡ *Premium Scalping Signal | {symbol_key}*
 ━━━━━━━━━━━━━━━━━━━━
 📈 *Direction*: `{"BUY 🟢" if direction == "BUY" else "SELL 🔴"}`
 💰 *Entry Price*: `{entry:.{decimals}f}`
@@ -790,5 +1015,244 @@ class BotCommands:
             [
                 InlineKeyboardButton("⬅️ العودة لإعدادات MT5", callback_data="btn_mt5_settings")
             ]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # ─────────────────────────────────────────────
+    # Admin Panel Screen Rendering Methods
+    # ─────────────────────────────────────────────
+
+    async def _show_admin_panel(self, chat_id: int, bot) -> None:
+        """Render main admin dashboard panel."""
+        self.user_states[chat_id] = 'MAIN_MENU'
+        text = (
+            "🛠 *لوحة تحكم المشرف (Admin Control Panel)*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "تتيح لك إدارة القوالب والأسعار والإشارات والإحصائيات مباشرة دون الحاجة لتغيير الكود أو إعادة تشغيل النظام.\n\n"
+            "الرجاء تحديد خيار الإدارة المطلوب أدناه:"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📝 Welcome Template", callback_data="admin_menu_templates"),
+                InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_menu_broadcast")
+            ],
+            [
+                InlineKeyboardButton("📈 Dynamic Symbols", callback_data="admin_menu_symbols"),
+                InlineKeyboardButton("⚙️ Bot Settings", callback_data="admin_menu_settings")
+            ],
+            [
+                InlineKeyboardButton("🔐 Security & Logs", callback_data="admin_menu_logs"),
+                InlineKeyboardButton("📊 Stats & Users", callback_data="admin_menu_stats")
+            ],
+            [
+                InlineKeyboardButton("🏠 Home", callback_data="btn_home")
+            ]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_templates(self, chat_id: int, bot) -> None:
+        """Render message template selection panel."""
+        text = (
+            "📝 *إدارة قوالب الرسائل (Message Template Manager)*:\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "اختر القالب الذي ترغب في تعديل صياغته ولغته البرمجية:"
+        )
+        keyboard = [
+            [InlineKeyboardButton("💎 Welcome Screen Template", callback_data="admin_edit_template:welcome_message")],
+            [InlineKeyboardButton("📊 Market Analysis Template", callback_data="admin_edit_template:market_analysis")],
+            [InlineKeyboardButton("⚡ Instant Signal Template", callback_data="admin_edit_template:instant_signal")],
+            [InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_edit_template_prompt(self, chat_id: int, bot, template_key: str) -> None:
+        """Prompt to edit a specific template, displaying current value and placeholder tips."""
+        self.user_states[chat_id] = f"admin_edit_{template_key.replace('_message', '')}"
+        
+        current_val = self.db.get_template(template_key)
+        
+        placeholders_tip = ""
+        if template_key == 'welcome_message':
+            placeholders_tip = "لا توجد متغيرات مطلوبة، استخدم نصوص عادية مارك داون."
+        elif template_key == 'market_analysis':
+            placeholders_tip = (
+                "المتغيرات المتاحة للدمج:\n"
+                "`{symbol}`: الرمز\n"
+                "`{current_price}`: السعر الحالي\n"
+                "`{current_trend}`: الاتجاه العام\n"
+                "`{structure}`: هيكل السوق\n"
+                "`{liquidity}`: مناطق السيولة\n"
+                "`{order_blocks}`: كتل الأوردر بلوك\n"
+                "`{fvg}`: الفجوات السعرية\n"
+                "`{support}` / `{resistance}`: الدعم والمقاومة\n"
+                "`{entry_zone}`: مناطق الدخول المفضلة\n"
+                "`{risk_assess}`: تقييم المخاطرة\n"
+                "`{confidence}`: نسبة الثقة\n"
+                "`{spread}`: السبريد بالنقاط\n"
+                "`{market_status}`: حالة السوق\n"
+                "`{recommendation}`: التوصية العامة"
+            )
+        elif template_key == 'instant_signal':
+            placeholders_tip = (
+                "المتغيرات المتاحة للدمج:\n"
+                "`{symbol}`: الرمز\n"
+                "`{direction}`: اتجاه الصفقة\n"
+                "`{entry}`: سعر الدخول\n"
+                "`{stop_loss}`: وقف الخسارة\n"
+                "`{tp1}` / `{tp2}` / `{tp3}`: الأهداف\n"
+                "`{risk_reward}`: معدل العائد للمخاطرة\n"
+                "`{confidence}`: نسبة الثقة\n"
+                "`{spread}`: السبريد بالنقاط\n"
+                "`{expiration}`: صلاحية الإشارة\n"
+                "`{holding_time}`: وقت الاحتفاظ المتوقع\n"
+                "`{market_conditions}`: حالة وظروف السوق\n"
+                "`{reason_entry}`: أسباب الدخول الفنية"
+            )
+
+        current_desc = f"📝 *القالب الحالي لـ {template_key}*:\n```\n{current_val or 'الافتراضي المستخدم في النظام'}\n```"
+        
+        text = (
+            f"✏️ *تعديل قالب: {template_key}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{current_desc}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *تعليمات وتلميحات المتغيرات*:\n"
+            f"{placeholders_tip}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"✍️ يرجى كتابة وإرسال القالب الجديد بالكامل في رسالة نصية عادية الآن لحفظه مباشرة:"
+        )
+        
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="admin_menu_templates")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_settings_menu(self, chat_id: int, bot) -> None:
+        """Render Admin Bot parameter configuration menu."""
+        min_score = self.db.get_setting('min_score', '90')
+        min_rr = self.db.get_setting('min_rr', '3.0')
+        cooldown = self.db.get_setting('cooldown', '15')
+        max_signals = self.db.get_setting('max_signals', '10')
+
+        text = (
+            f"⚙️ *إدارة معلمات ونظام البوت (Bot Parameter Settings)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 الحد الأدنى لتقييم الثقة (Min Confidence): *{min_score}%*\n"
+            f"📊 أدنى معدل عائد للمخاطرة (Min Risk/Reward): *1:{min_rr}*\n"
+            f"⏱️ التبريد بين الإشارات بالدقائق (Cooldown): *{cooldown} دقيقة*\n"
+            f"📈 الحد الأقصى للإشارات يومياً: *{max_signals} إشارة*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"انقر على المعلمة التي تريد تعديلها لإدخال القيمة الجديدة:"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("🎯 Edit Confidence", callback_data="admin_set_param:min_score"),
+                InlineKeyboardButton("📊 Edit Risk/Reward", callback_data="admin_set_param:min_rr")
+            ],
+            [
+                InlineKeyboardButton("⏱️ Edit Cooldown", callback_data="admin_set_param:cooldown"),
+                InlineKeyboardButton("📈 Edit Max Signals", callback_data="admin_set_param:max_signals")
+            ],
+            [
+                InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")
+            ]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_set_param_prompt(self, chat_id: int, bot, param_key: str) -> None:
+        """Prompt to change a specific setting value."""
+        self.user_states[chat_id] = f"admin_set_{param_key}"
+        current_val = self.db.get_setting(param_key, "N/A")
+        
+        text = (
+            f"✏️ *تعديل المعلمة: {param_key}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"القيمة الحالية: *{current_val}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"✍️ يرجى كتابة وإرسال القيمة الرقمية الجديدة مباشرة الآن لحفظها وتطبيقها فوراً:"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="admin_menu_settings")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_symbols_manager(self, chat_id: int, bot) -> None:
+        """Render dynamique trading symbol manager (Enable/Disable/Add)."""
+        text = (
+            "📈 *إدارة رموز التداول النشطة (Symbol Configuration)*:\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "انقر على رمز التداول لتفعيله أو تعطيله فوراً من خيارات الفحص:"
+        )
+        
+        keyboard = []
+        for sym_key, sym_data in Config.SUPPORTED_SYMBOLS.items():
+            is_disabled = sym_data.get('disabled', False)
+            status_icon = "🔴 (معطل)" if is_disabled else "🟢 (نشط)"
+            display_name = sym_data.get('display', sym_key)
+            
+            keyboard.append([
+                InlineKeyboardButton(f"{display_name} {status_icon}", callback_data=f"admin_toggle_sym:{sym_key}")
+            ])
+            
+        keyboard.append([
+            InlineKeyboardButton("➕ Add New Symbol", callback_data="admin_add_sym_prompt")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")
+        ])
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_broadcast_prompt(self, chat_id: int, bot) -> None:
+        """Prompt to write a broadcast message."""
+        self.user_states[chat_id] = 'admin_broadcast_msg'
+        text = (
+            "📢 *بث رسالة عامة للأعضاء (Global Broadcast System)*:\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "✍️ يرجى كتابة وإرسال الرسالة النصية المراد بثها لجميع المستخدمين المسجلين بالكامل الآن (تدعم التنسيق ومارك داون وإيموجي):"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_stats(self, chat_id: int, bot) -> None:
+        """Render users and signals statistics summary dashboard."""
+        total_u = self.db.get_users_count()
+        today_u = self.db.get_today_users_count()
+        active_u = len(self.db.get_active_users())
+        
+        trades = self.db.get_all_trades(limit=100)
+        total_trades = len(trades)
+        wins = len([t for t in trades if t['result'] == 'TP'])
+        losses = len([t for t in trades if t['result'] == 'SL'])
+        win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0.0
+
+        text = (
+            f"📊 *إحصائيات المنصة والأعضاء (Platform Analytics)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 إجمالي الأعضاء المسجلين: *{total_u} مستخدم*\n"
+            f"📈 الأعضاء الجدد اليوم: *{today_u} مستخدم*\n"
+            f"🟢 الأعضاء النشطين (Active): *{active_u} مستخدم*\n\n"
+            f"🎯 إجمالي صفقات الفحص (آخر 100): *{total_trades} صفقة*\n"
+            f"✅ صفقات ناجحة (Win): *{wins}* | 🛑 خاسرة (Loss): *{losses}*\n"
+            f"📈 نسبة نجاح الإشارات: *{win_rate:.1f}%*\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_logs_panel(self, chat_id: int, bot) -> None:
+        """Render recent security actions and log events."""
+        logs = self.db.get_admin_logs(10)
+        log_lines = []
+        for l in logs:
+            log_lines.append(f"• `[{l['timestamp']}]` Admin ID: `{l['admin_id']}`\n  Action: *{l['action']}* -> *{l['result']}*")
+        
+        logs_text = "\n\n".join(log_lines) if log_lines else "لا توجد سجلات أمنية حتى الآن."
+
+        text = (
+            f"🔐 *سجل العمليات والرقابة الأمنية (Security Audit Logs)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{logs_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱️ تغذية الأسعار: *CONNECTED (TradingView Live OANDA)*"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔄 Restart Services", callback_data="admin_restart_services")],
+            [InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]
         ]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
