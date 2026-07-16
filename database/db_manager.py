@@ -75,6 +75,21 @@ class DatabaseManager:
                     FOREIGN KEY(trade_id) REFERENCES trades(id)
                 );
                 """)
+
+                # MT5 Encrypted Credentials Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mt5_credentials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER UNIQUE NOT NULL,
+                    broker_name TEXT,
+                    server TEXT NOT NULL,
+                    login INTEGER NOT NULL,
+                    encrypted_password TEXT NOT NULL,
+                    terminal_path TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """)
                 conn.commit()
                 logger.info("💾 Database schema initialized successfully")
         except Exception as e:
@@ -213,3 +228,54 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error fetching trades: {e}")
             return []
+
+    # ── MT5 Credentials Management ──
+
+    def save_mt5_account(self, chat_id: int, broker_name: str, server: str, login: int, encrypted_password: str, terminal_path: str = "") -> bool:
+        """Insert or update encrypted MT5 account credentials for a user."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                cursor.execute("""
+                INSERT INTO mt5_credentials (chat_id, broker_name, server, login, encrypted_password, terminal_path, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    broker_name = excluded.broker_name,
+                    server = excluded.server,
+                    login = excluded.login,
+                    encrypted_password = excluded.encrypted_password,
+                    terminal_path = excluded.terminal_path,
+                    updated_at = excluded.updated_at
+                """, (chat_id, broker_name, server, login, encrypted_password, terminal_path, now_str, now_str))
+                conn.commit()
+                logger.info(f"🔐 Encrypted MT5 credentials stored for chat_id={chat_id} (Login: {login})")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving MT5 credentials in DB: {e}")
+            return False
+
+    def get_mt5_account(self, chat_id: int) -> Optional[Dict]:
+        """Fetch encrypted MT5 credentials for a user."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM mt5_credentials WHERE chat_id = ?", (chat_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching MT5 credentials from DB: {e}")
+            return None
+
+    def delete_mt5_account(self, chat_id: int) -> bool:
+        """Remove MT5 account credentials for a user."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM mt5_credentials WHERE chat_id = ?", (chat_id,))
+                conn.commit()
+                logger.info(f"🗑️ MT5 credentials removed for chat_id={chat_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting MT5 credentials from DB: {e}")
+            return False
