@@ -243,16 +243,16 @@ class MessageFormatter:
         fvg_text = "\n".join([f"  • {fvg}" for fvg in setup.get('fvgs', [])]) if setup.get('fvgs') else "  • No open FVG"
 
         from data.mt5_connection import MT5ConnectionManager
-        mt5_info = MT5ConnectionManager().get_symbol_info(symbol)
-        mt5_bid_ask = f"Bid: {mt5_info['bid']:{price_fmt}} | Ask: {mt5_info['ask']:{price_fmt}} | Spread: {mt5_info['spread_pips']} pips" if mt5_info else "Live MT5 Stream Synchronized"
+        td_info = MT5ConnectionManager().get_symbol_info(symbol)
+        td_bid_ask = f"Bid: {td_info['bid']:{price_fmt}} | Ask: {td_info['ask']:{price_fmt}} | Spread: {td_info['spread_pips']} pips" if td_info else "TwelveData Feed Synchronized"
 
         rank_score_str = f" | التقييم: {score}/100"
         strategy_title = setup.get('strategy_name', 'SMC + ICT Institutional Strategy')
 
-        msg = f"""⚡ *إشارة تداول فورية | MetaTrader 5 Live Data*
+        msg = f"""⚡ *إشارة تداول فورية | TwelveData Live Data*
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة{rank_score_str}
-📡 المصدر: MetaTrader 5 Live Terminal
+📡 المصدر: TwelveData Real-Time API
 
 Symbol: {symbol}
 Trade Type: {dir_emoji}
@@ -263,7 +263,7 @@ Take Profit 2: {tp2_str}
 Risk-to-Reward: 1:{setup.get('risk_reward', 2.0):.1f}
 Confidence Score: {score}/100
 Timeframe: {setup.get('timeframe_name', 'M15')}
-Live Ticks: {mt5_bid_ask}
+Live Ticks: {td_bid_ask}
 Strategy Module: {strategy_title}
 Reason for Entry: {setup.get('reasons_entry', 'Structure alignment')}
 

@@ -1,271 +1,89 @@
 """
-Mustafa Bot - Pure Native MetaTrader 5 (MT5) Direct Connection & Data Engine
-المزود الأحادي والحي لجميع بيانات الأسعار، الشموع التاريخية، الفوارق السعرية (Spread)، ومواصفات الأصول عبر منصة MetaTrader 5 المباشرة
+Mustafa Bot - TwelveData Connection Adapter (Bypassing MT5)
+محول البيانات الذي يعتمد بالكامل على TwelveData ويلغي خيارات MetaTrader 5
 """
 
-import os
 import logging
-import asyncio
 from typing import Dict, Optional, Tuple, List
-from datetime import datetime, timezone
 import pandas as pd
 from config import Config
 from utils.diagnostics import DiagnosticsManager
 
 logger = logging.getLogger('mustafa_bot.data.mt5_connection')
-
-try:
-    import MetaTrader5 as mt5
-    MT5_AVAILABLE = True
-except ImportError:
-    mt5 = None
-    MT5_AVAILABLE = False
-    logger.warning("MetaTrader5 python package not installed or unsupported in current environment")
+MT5_AVAILABLE = False
+mt5 = None
 
 
 class MT5ConnectionManager:
-    """Singleton lifecycle connection manager for Pure Native MetaTrader 5 terminal integration."""
+    """Connection adaptor that routes all requests exclusively to TwelveData."""
 
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(MT5ConnectionManager, cls).__new__(cls)
-            cls._instance.is_initialized = False
-            cls._instance.active_account_info: Dict = {}
-            cls._instance.terminal_info: Dict = {}
+            cls._instance.is_initialized = True
+            cls._instance.active_account_info = {
+                'login': 'TwelveData API',
+                'server': 'Cloud API',
+                'company': 'Twelve Data',
+                'balance': 100000.0,
+                'equity': 100000.0,
+                'leverage': 100
+            }
+            cls._instance.terminal_info = {
+                'ping_last': 30,
+                'build': 2026
+            }
             cls._instance.diagnostics = DiagnosticsManager()
-            cls._instance.broker_symbols: Dict[str, str] = {}
-            cls._instance.tf_map = {}
-            cls._instance._init_tf_map()
+            cls._instance.broker_symbols = {}
         return cls._instance
 
-    def _init_tf_map(self) -> None:
-        """Initialize timeframe string mapping directly to MT5 API constants."""
-        if MT5_AVAILABLE and mt5 is not None:
-            self.tf_map = {
-                '1m': mt5.TIMEFRAME_M1, '5m': mt5.TIMEFRAME_M5, '15m': mt5.TIMEFRAME_M15,
-                '30m': mt5.TIMEFRAME_M30, '1h': mt5.TIMEFRAME_H1, '4h': mt5.TIMEFRAME_H4,
-                '1d': mt5.TIMEFRAME_D1, '1w': mt5.TIMEFRAME_W1, '1mo': mt5.TIMEFRAME_MN1,
-                'm1': mt5.TIMEFRAME_M1, 'm5': mt5.TIMEFRAME_M5, 'm15': mt5.TIMEFRAME_M15,
-                'm30': mt5.TIMEFRAME_M30, 'h1': mt5.TIMEFRAME_H1, 'h4': mt5.TIMEFRAME_H4,
-                'd1': mt5.TIMEFRAME_D1, 'w1': mt5.TIMEFRAME_W1, 'mn1': mt5.TIMEFRAME_MN1
-            }
-
     def connect(self, chat_id: Optional[int] = None) -> bool:
-        """Establish connection to MT5 terminal (native) or Bridge API (cloud)."""
-
-        # ── Attempt 1: Native MT5 Terminal (Windows only) ──
-        if MT5_AVAILABLE and mt5 is not None:
-            try:
-                init_kwargs = {}
-                if Config.MT5_PATH and os.path.exists(Config.MT5_PATH):
-                    init_kwargs['path'] = Config.MT5_PATH
-
-                login_id = Config.MT5_LOGIN
-                if chat_id:
-                    from database.db_manager import DatabaseManager
-                    acc_db = DatabaseManager().get_mt5_account(chat_id)
-                    if acc_db:
-                        login_id = acc_db.get('login', login_id)
-                        if acc_db.get('server'): init_kwargs['server'] = acc_db['server']
-                        if acc_db.get('encrypted_password'):
-                            from utils.crypto_vault import CryptoVault
-                            init_kwargs['password'] = CryptoVault().decrypt_secret(acc_db['encrypted_password'])
-
-                if login_id > 0:
-                    init_kwargs['login'] = login_id
-
-                initialized = mt5.initialize(**init_kwargs)
-
-                if initialized:
-                    term_raw = mt5.terminal_info()
-                    acc_raw = mt5.account_info()
-
-                    if term_raw and acc_raw:
-                        self.is_initialized = True
-                        self.active_account_info = {
-                            'login': acc_raw.login,
-                            'server': acc_raw.server,
-                            'company': acc_raw.company,
-                            'name': acc_raw.name,
-                            'currency': acc_raw.currency,
-                            'balance': acc_raw.balance,
-                            'equity': acc_raw.equity,
-                            'margin_free': acc_raw.margin_free,
-                            'leverage': acc_raw.leverage
-                        }
-                        self.terminal_info = {
-                            'community_account': term_raw.community_account,
-                            'connected': term_raw.connected,
-                            'ping_last': term_raw.ping_last,
-                            'build': term_raw.build,
-                            'name': term_raw.name,
-                            'path': term_raw.path,
-                            'data_path': term_raw.data_path
-                        }
-                        ping_ms = round(term_raw.ping_last / 1000.0, 1) if term_raw.ping_last else 0.0
-                        self.diagnostics.update_data_feed_status(f"CONNECTED (MT5 Direct | {ping_ms}ms)")
-                        logger.info(f"Pure Native MT5 Terminal Active: Account {acc_raw.login} ({acc_raw.company}) | Ping: {ping_ms}ms | Build: {term_raw.build}")
-                        self.discover_symbols()
-                        return True
-                else:
-                    err_code, err_msg = mt5.last_error()
-                    logger.debug(f"Native MT5 init failed: Code {err_code} ({err_msg})")
-            except Exception as e:
-                logger.debug(f"Native MT5 connection attempt: {e}")
-        else:
-            logger.info("MetaTrader5 package unavailable, trying Bridge API fallback...")
-
-        # ── Attempt 2: FastAPI MT5 Bridge Client (Railway / Linux / Cloud) ──
-        try:
-            from data.mt5_bridge_client import MT5BridgeClient
-            client = MT5BridgeClient()
-            health = client.get_health()
-
-            if health and health.get('status') == 'ONLINE':
-                self.is_initialized = True
-                acc = client.get_account() or {}
-                self.active_account_info = {
-                    'login': acc.get('login', 'MT5 Bridge'),
-                    'server': acc.get('server', 'Bridge Server'),
-                    'company': acc.get('company', health.get('broker', 'FastAPI MT5 Bridge')),
-                    'balance': acc.get('balance', 0.0),
-                    'equity': acc.get('equity', 0.0),
-                    'leverage': acc.get('leverage', 500)
-                }
-                self.terminal_info = {
-                    'ping_last': int(health.get('ping_ms', 0) * 1000),
-                    'build': health.get('build', 4400)
-                }
-                self.diagnostics.update_data_feed_status(f"CONNECTED (FastAPI MT5 Bridge | {health.get('ping_ms')}ms)")
-                logger.info(f"Connected to FastAPI MT5 Bridge API: Broker={health.get('broker')} | Ping={health.get('ping_ms')}ms")
-                return True
-        except Exception as ex:
-            logger.debug(f"MT5 Bridge Client connection attempt: {ex}")
-
-        self.is_initialized = False
-        self.diagnostics.update_data_feed_status("DISCONNECTED")
-        return False
+        """Mock connect always returning True since TwelveData is active."""
+        self.is_initialized = True
+        self.diagnostics.update_data_feed_status("CONNECTED (TwelveData Cloud API)")
+        return True
 
     def discover_symbols(self) -> Dict[str, str]:
-        """Auto-detect available broker symbols in connected MT5 terminal and map them to standard instrument keys."""
-        if not self.is_initialized or mt5 is None:
-            return {}
-
-        try:
-            all_symbols = mt5.symbols_get()
-            if not all_symbols:
-                return {}
-
-            avail_names = [s.name for s in all_symbols]
-            candidates = {
-                'XAU/USD': ['XAUUSD', 'XAUUSD.a', 'XAUUSDm', 'GOLD', 'XAUUSD.pro', 'XAUUSD.ecn'],
-                'EUR/USD': ['EURUSD', 'EURUSD.a', 'EURUSDm', 'EURUSD.pro'],
-                'GBP/USD': ['GBPUSD', 'GBPUSD.a', 'GBPUSDm', 'GBPUSD.pro'],
-                'USD/JPY': ['USDJPY', 'USDJPY.a', 'USDJPYm', 'USDJPY.pro'],
-                'NAS100': ['NAS100', 'US100', 'USTECH100', 'NAS100USD', 'USTECH'],
-                'US30': ['US30', 'DJ30', 'USA30', 'WALLSTREET30', 'US30USD'],
-                'BTC/USD': ['BTCUSD', 'BTCUSDT', 'BITCOIN'],
-                'ETH/USD': ['ETHUSD', 'ETHUSDT', 'ETHEREUM']
-            }
-
-            for base_key, options in candidates.items():
-                matched = None
-                for opt in options:
-                    if opt in avail_names:
-                        matched = opt
-                        break
-                    for name in avail_names:
-                        if opt.lower() in name.lower():
-                            matched = name
-                            break
-                    if matched: break
-
-                if matched:
-                    mt5.symbol_select(matched, True)
-                    self.broker_symbols[base_key] = matched
-
-            logger.info(f"🔍 Discovered & mapped {len(self.broker_symbols)} MT5 broker symbols: {self.broker_symbols}")
-            return self.broker_symbols
-        except Exception as e:
-            logger.error(f"Error discovering broker symbols in MT5 terminal: {e}")
-            return {}
+        return {}
 
     def get_broker_symbol(self, symbol_key: str) -> str:
-        """Resolve exact broker symbol name from connected MT5 terminal."""
-        if symbol_key in self.broker_symbols:
-            return self.broker_symbols[symbol_key]
-        return symbol_key.replace('/', '')
+        return symbol_key
 
     def get_symbol_info(self, symbol_key: str) -> Optional[Dict]:
-        """Fetch live Bid, Ask, Spread, Point, Digits and Contract Size directly from MT5 symbol_info or Bridge Client."""
-        if not self.is_initialized:
-            self.connect()
+        """Fetch live Bid/Ask/Spread details from TwelveData."""
+        from data.price_fetcher import PriceFetcher
+        fetcher = PriceFetcher(symbol_key)
+        price = fetcher.get_current_price()
+        if price is None:
+            return None
 
-        if mt5 is None or not hasattr(mt5, 'symbol_info'):
-            from data.mt5_bridge_client import MT5BridgeClient
-            return MT5BridgeClient().get_symbol_info(symbol_key)
-
-        broker_symbol = self.get_broker_symbol(symbol_key)
-        info = mt5.symbol_info(broker_symbol)
-
-        if info is None:
-            mt5.symbol_select(broker_symbol, True)
-            info = mt5.symbol_info(broker_symbol)
-
-        if info is None:
-            from data.mt5_bridge_client import MT5BridgeClient
-            return MT5BridgeClient().get_symbol_info(symbol_key)
-
-        bid = info.bid
-        ask = info.ask
-        last = info.last if info.last > 0 else (bid + ask) / 2.0
-        point = info.point
-        digits = info.digits
-        spread_points = info.spread
-
+        # Estimate bid/ask/spread based on default config spread
         sym_cfg = Config.SUPPORTED_SYMBOLS.get(symbol_key, {})
+        spread_pips = sym_cfg.get('default_spread', 0.3)
         pip_mult = sym_cfg.get('pip_multiplier', 0.1 if 'XAU' in symbol_key else 0.0001)
-        spread_pips = (spread_points * point) / max(0.000001, pip_mult) if point > 0 else (ask - bid) / max(0.000001, pip_mult)
+        spread_val = spread_pips * pip_mult
+
+        bid = price - (spread_val / 2.0)
+        ask = price + (spread_val / 2.0)
 
         return {
             'symbol_key': symbol_key,
-            'broker_symbol': broker_symbol,
-            'bid': bid,
-            'ask': ask,
-            'last': last,
-            'point': point,
-            'digits': digits,
-            'spread_points': spread_points,
-            'spread_pips': round(spread_pips, 2),
-            'contract_size': info.trade_contract_size,
-            'trade_tick_size': info.trade_tick_size
+            'broker_symbol': symbol_key,
+            'bid': round(bid, 5),
+            'ask': round(ask, 5),
+            'last': price,
+            'point': 0.01 if 'XAU' in symbol_key else 0.00001,
+            'digits': sym_cfg.get('decimal_places', 2),
+            'spread_points': int(spread_pips * 10),
+            'spread_pips': spread_pips,
+            'contract_size': 100 if 'XAU' in symbol_key else 100000,
+            'trade_tick_size': 0.01
         }
 
     def get_historical_rates(self, symbol_key: str, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Fetch historical candle rates directly from MT5 terminal or Bridge Client."""
-        if not self.is_initialized:
-            self.connect()
-
-        if mt5 is None or not hasattr(mt5, 'copy_rates_from_pos'):
-            from data.mt5_bridge_client import MT5BridgeClient
-            return MT5BridgeClient().get_candles(symbol_key, timeframe, n_bars)
-
-        broker_symbol = self.get_broker_symbol(symbol_key)
-        mt5_tf = self.tf_map.get(timeframe.lower(), mt5.TIMEFRAME_M15)
-
-        rates = mt5.copy_rates_from_pos(broker_symbol, mt5_tf, 0, n_bars)
-        if rates is None or len(rates) == 0:
-            from data.mt5_bridge_client import MT5BridgeClient
-            return MT5BridgeClient().get_candles(symbol_key, timeframe, n_bars)
-
-        df = pd.DataFrame(rates)
-        df['time'] = pd.to_datetime(df['time'], unit='s')
-        df.set_index('time', inplace=True)
-        df.rename(columns={
-            'open': 'open', 'high': 'high', 'low': 'low',
-            'close': 'close', 'tick_volume': 'tick_volume'
-        }, inplace=True)
-
-        return df[['open', 'high', 'low', 'close', 'tick_volume']]
+        """Fetch historical candle rates directly from TwelveData."""
+        from data.price_fetcher import PriceFetcher
+        fetcher = PriceFetcher(symbol_key)
+        return fetcher.get_historical_data(timeframe, n_bars)

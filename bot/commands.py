@@ -84,7 +84,7 @@ class BotCommands:
                 InlineKeyboardButton("📈 إحصائيات الأداء", callback_data="btn_performance")
             ],
             [
-                InlineKeyboardButton("🔗 حساب MT5 والربط", callback_data="btn_mt5_account"),
+                InlineKeyboardButton("🎯 معايرة السعر", callback_data="btn_calibrate_price"),
                 InlineKeyboardButton("⚙️ نمط التداول والمخاطرة", callback_data="btn_settings")
             ],
             [

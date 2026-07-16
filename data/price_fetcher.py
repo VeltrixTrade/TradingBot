@@ -1,20 +1,18 @@
 """
-Mustafa Bot - Smart Multi-Source Price Fetcher
-جلب الأسعار عبر 4 مستويات: (1) MT5 Native → (2) MT5 Bridge API → (3) TwelveData API (Premium) → (4) yfinance & Binance Fallbacks
+Mustafa Bot - TwelveData Exclusive Price Fetcher
+جلب الأسعار والشموع حصرياً ومباشرة من TwelveData كـ مصدر رئيسي وحيد للبوت
 """
 
 import logging
 import json
 import urllib.request
 from typing import Optional, Dict
-from datetime import datetime, timezone
 import pandas as pd
-from data.mt5_connection import MT5ConnectionManager, MT5_AVAILABLE
 from config import Config
 
 logger = logging.getLogger('mustafa_bot.data.price_fetcher')
 
-# ── Symbol → Direct REST API mapping ──
+# ── Symbol → Fallback REST API mapping ──
 DIRECT_API_MAP = {
     'XAU/USD': {'url': 'https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT', 'key': 'price'},
     'BTC/USD': {'url': 'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', 'key': 'price'},
@@ -40,7 +38,7 @@ TWELVEDATA_SYMBOL_MAP = {
     'NAS100': 'NDX',
     'US30': 'DJI',
     'BTC/USD': 'BTC/USD',
-    'ETH/USD': 'ETH/USD',
+    'ETH/USD': 'ETH-USD',
 }
 
 TWELVEDATA_INTERVAL_MAP = {
@@ -52,22 +50,18 @@ TWELVEDATA_INTERVAL_MAP = {
 
 
 class PriceFetcher:
-    """Multi-source price fetcher: MT5 Native → Bridge API → TwelveData → Binance/yfinance."""
+    """Exclusive TwelveData Price Fetcher (with yfinance/Binance fallback)."""
 
     def __init__(self, symbol_key: str = 'XAU/USD'):
         self.symbol_key = symbol_key
-        self.mt5_mgr = MT5ConnectionManager()
         self._price_source = 'UNKNOWN'
-
-        if not self.mt5_mgr.is_initialized:
-            self.mt5_mgr.connect()
 
     # ══════════════════════════════════════════════
     #  LIVE CURRENT PRICE
     # ══════════════════════════════════════════════
 
     def get_current_price(self, chat_id: Optional[int] = None) -> Optional[float]:
-        """Get live price via best available source, apply calibration offset if needed."""
+        """Get live price via TwelveData, apply calibration offset if needed."""
         raw_p = self._fetch_raw_current_price()
         if raw_p and chat_id:
             from data.price_calibrator import BrokerPriceCalibrator
@@ -75,33 +69,24 @@ class PriceFetcher:
         return raw_p
 
     def _fetch_raw_current_price(self) -> Optional[float]:
-        """Try all sources in priority order: MT5 Native → Bridge → TwelveData → Direct REST APIs → yfinance."""
+        """Fetch price: TwelveData (Primary) → Binance/yfinance (Emergency Fallback)."""
 
-        # ── Source 1: MT5 Native or Bridge (via MT5ConnectionManager) ──
-        try:
-            info = self.mt5_mgr.get_symbol_info(self.symbol_key)
-            if info and info.get('bid', 0) > 0:
-                self._price_source = 'MT5_DIRECT' if MT5_AVAILABLE else 'MT5_BRIDGE'
-                return float(info.get('last', 0) or ((info['bid'] + info['ask']) / 2.0))
-        except Exception as e:
-            logger.debug(f"MT5/Bridge price fetch failed for {self.symbol_key}: {e}")
-
-        # ── Source 2: TwelveData API (Premium Integration) ──
+        # ── Source 1: TwelveData API (Exclusive Primary) ──
         price_td = self._fetch_from_twelvedata()
         if price_td:
             self._price_source = 'TWELVEDATA'
             return price_td
 
-        # ── Source 3: Direct REST API (Binance for Gold/Crypto) ──
+        # ── Source 2: Direct REST API Fallback (Binance for Gold/Crypto) ──
         price_bin = self._fetch_from_direct_api()
         if price_bin:
-            self._price_source = 'DIRECT_REST_API'
+            self._price_source = 'BINANCE_FALLBACK'
             return price_bin
 
-        # ── Source 4: yfinance fallback ──
+        # ── Source 3: yfinance Fallback ──
         price_yf = self._fetch_from_yfinance()
         if price_yf:
-            self._price_source = 'YFINANCE'
+            self._price_source = 'YFINANCE_FALLBACK'
             return price_yf
 
         logger.error(f"All price sources failed for {self.symbol_key}")
@@ -111,6 +96,7 @@ class PriceFetcher:
         """Fetch live price from TwelveData API."""
         apikey = getattr(Config, 'TWELVEDATA_API_KEY', '').strip()
         if not apikey:
+            logger.warning("TwelveData API key is missing in config.")
             return None
 
         td_symbol = TWELVEDATA_SYMBOL_MAP.get(self.symbol_key, self.symbol_key.replace('/', ''))
@@ -163,28 +149,15 @@ class PriceFetcher:
     # ══════════════════════════════════════════════
 
     def get_historical_data(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Fetch historical OHLCV candles: MT5/Bridge → TwelveData → yfinance."""
+        """Fetch historical OHLCV candles: TwelveData (Primary) → yfinance (Fallback)."""
 
-        # ── Source 1: MT5 Native or Bridge ──
-        try:
-            df = self.mt5_mgr.get_historical_rates(self.symbol_key, timeframe, n_bars)
-            if df is not None and not df.empty:
-                df.columns = [c.lower() for c in df.columns]
-                required = ['open', 'high', 'low', 'close']
-                if all(col in df.columns for col in required):
-                    df = df.dropna(subset=required)
-                    logger.info(f"Fetched {len(df)} candles for {self.symbol_key} ({timeframe}) via MT5/Bridge")
-                    return df
-        except Exception as e:
-            logger.debug(f"MT5/Bridge candles failed for {self.symbol_key} ({timeframe}): {e}")
-
-        # ── Source 2: TwelveData API (Premium Integration) ──
+        # ── Source 1: TwelveData API (Exclusive Primary) ──
         df_td = self._fetch_candles_twelvedata(timeframe, n_bars)
         if df_td is not None and not df_td.empty:
             logger.info(f"Fetched {len(df_td)} candles for {self.symbol_key} ({timeframe}) via TwelveData")
             return df_td
 
-        # ── Source 3: yfinance fallback ──
+        # ── Source 2: yfinance Fallback ──
         return self._fetch_candles_yfinance(timeframe, n_bars)
 
     def _fetch_candles_twelvedata(self, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
