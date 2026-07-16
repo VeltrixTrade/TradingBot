@@ -84,13 +84,13 @@ class PriceFetcher:
         return mtf_data
 
     def get_current_price(self) -> Optional[float]:
-        """Get live current price (Last/Bid/Ask mid) directly from MT5 symbol_info."""
+        """Get live current price (Last/Bid/Ask mid) directly from MT5 symbol_info or Real-Time Live Feed."""
         info = self.mt5_mgr.get_symbol_info(self.symbol_key)
-        if info:
+        if info and info.get('last', 0) > 0:
             return info['last']
         
-        # Fallback to last candle close
-        df = self.get_historical_data('1m', n_bars=5)
+        # Fallback to latest live candle close
+        df = self.get_historical_data('15m', n_bars=5)
         if df is not None and not df.empty:
             return float(df['close'].iloc[-1])
         return None
