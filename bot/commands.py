@@ -290,13 +290,19 @@ class BotCommands:
         if current_state == 'chat':
             await self.msg_manager.send_or_edit(context.bot, chat_id, "🤔 *جاري تفكير المستشار الذكي...* ⏳")
             try:
-                # Gather live market prices for AI context
+                # Gather live market prices for AI context (limited to Gold and Active Symbol to prevent delays/timeouts)
                 from data.price_fetcher import PriceFetcher
                 prices_context = []
-                for sym_key in Config.SUPPORTED_SYMBOLS.keys():
-                    p = PriceFetcher(sym_key).get_current_price()
-                    if p:
-                        prices_context.append(f"{sym_key}: {p}")
+                
+                p_gold = PriceFetcher('XAU/USD').get_current_price()
+                if p_gold:
+                    prices_context.append(f"XAU/USD: {p_gold}")
+                
+                active_sym = self.user_symbols.get(chat_id, 'XAU/USD')
+                if active_sym != 'XAU/USD':
+                    p_active = PriceFetcher(active_sym).get_current_price()
+                    if p_active:
+                        prices_context.append(f"{active_sym}: {p_active}")
                 
                 prices_str = ", ".join(prices_context)
                 context_prompt = f"[Live Market Prices Context from TradingView: {prices_str}]\n\nUser Question: {text}"

@@ -286,7 +286,8 @@ class AIManager:
             # Use Gemini as primary for fast response
             response = await asyncio.to_thread(
                 self.gemini.model.generate_content,
-                f"{system_prompt}\n\nUser Question: {user_message}"
+                f"{system_prompt}\n\nUser Question: {user_message}",
+                generation_config={"response_mime_type": "text/plain"}
             )
             return response.text
         except Exception as e:
