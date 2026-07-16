@@ -116,30 +116,49 @@ class PriceFetcher:
 
     def _fetch_from_direct_api(self) -> Optional[float]:
         """Fetch from Binance or free FX REST APIs."""
+        # For Cryptos & Gold via Binance
         api_info = DIRECT_API_MAP.get(self.symbol_key)
-        if not api_info:
-            return None
-        try:
-            req = urllib.request.Request(api_info['url'], headers={'User-Agent': 'MustafaBot/3.5'})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                return float(data.get(api_info['key'], 0))
-        except Exception as e:
-            logger.debug(f"Direct REST API failed for {self.symbol_key}: {e}")
+        if api_info:
+            try:
+                req = urllib.request.Request(api_info['url'], headers={'User-Agent': 'MustafaBot/3.5'})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    return float(data.get(api_info['key'], 0))
+            except Exception as e:
+                logger.debug(f"Direct REST API failed for {self.symbol_key}: {e}")
+
+        # For Forex via free Open Exchange Rates API
+        if self.symbol_key in ['EUR/USD', 'GBP/USD', 'USD/JPY']:
+            try:
+                url = "https://open.er-api.com/v6/latest/USD"
+                req = urllib.request.Request(url, headers={'User-Agent': 'MustafaBot/3.5'})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    rates = data.get('rates', {})
+                    if self.symbol_key == 'EUR/USD' and 'EUR' in rates:
+                        return round(1.0 / rates['EUR'], 5)
+                    elif self.symbol_key == 'GBP/USD' and 'GBP' in rates:
+                        return round(1.0 / rates['GBP'], 5)
+                    elif self.symbol_key == 'USD/JPY' and 'JPY' in rates:
+                        return round(rates['JPY'], 3)
+            except Exception as e:
+                logger.debug(f"Free FX API failed for {self.symbol_key}: {e}")
+
         return None
 
     def _fetch_from_yfinance(self) -> Optional[float]:
-        """Fetch from yfinance as last resort fallback."""
+        """Fetch from yfinance as last resort fallback using history method."""
         ticker = YFINANCE_MAP.get(self.symbol_key)
         if not ticker:
             return None
         try:
             import yfinance as yf
             t = yf.Ticker(ticker)
-            info = t.fast_info
-            price = getattr(info, 'last_price', None) or getattr(info, 'previous_close', None)
-            if price and price > 0:
-                return float(price)
+            df = t.history(period='1d')
+            if df is not None and not df.empty and 'Close' in df.columns:
+                price = float(df['Close'].iloc[-1])
+                if price > 0:
+                    return price
         except Exception as e:
             logger.debug(f"yfinance failed for {self.symbol_key}: {e}")
         return None
