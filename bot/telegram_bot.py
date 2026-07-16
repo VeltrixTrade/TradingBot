@@ -247,12 +247,27 @@ class MustafaBot:
         self.engine = SignalEngine()
         self.commands = BotCommands(self.engine)
         from trade_management.lifecycle import TradeLifecycleEngine
+        from scalping.fast_scanner import FastMarketScanner
+        
         self.lifecycle_engine = TradeLifecycleEngine()
         self.lifecycle_engine.set_notification_callback(self.on_trade_lifecycle_update)
-        
+
+        self.fast_scanner = FastMarketScanner()
+        self.fast_scanner.set_notification_callback(self.on_fast_scanner_signal)
+
         self.app: Optional[Application] = None
         self.chat_id = Config.CHAT_ID
         self._analysis_running = False
+
+    async def on_fast_scanner_signal(self, setup: dict) -> None:
+        """Broadcast instant winning scalping setup immediately."""
+        try:
+            if self.app and self.chat_id:
+                msg = MessageFormatter.format_institutional_signal(setup)
+                await self.app.bot.send_message(chat_id=self.chat_id, text=msg, parse_mode="Markdown")
+                logger.info(f"⚡ Instant Scalper Signal published: {setup['symbol']} ({setup.get('strategy_name')})")
+        except Exception as e:
+            logger.error(f"Error publishing fast scanner signal: {e}")
 
     async def on_trade_lifecycle_update(self, trade: dict, old_status: str, new_status: str, price: float, notes: str) -> None:
         """Broadcast trade lifecycle updates to public channel or active subscribers."""
@@ -328,6 +343,10 @@ class MustafaBot:
         # Start trade lifecycle async background loop
         asyncio.create_task(self.lifecycle_engine.start_worker_loop(15))
         logger.info('⏰ Trade Lifecycle Worker loop task initialized')
+
+        # Start continuous ultra-fast market scanner background loop
+        asyncio.create_task(self.fast_scanner.start_continuous_scanner_loop(10))
+        logger.info('⚡ Continuous Fast Market Scanner worker task initialized')
 
     async def post_shutdown(self, application: Application) -> None:
         """Runs during bot shutdown."""

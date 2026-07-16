@@ -68,26 +68,49 @@ class Config:
     SCALP_TIMEFRAMES: list = ['1m', '5m', '15m']
     SWING_TIMEFRAMES: list = ['30m', '1h', '4h']
 
-    # ── Dual Trading Profiles ──
-    TRADING_PROFILES: dict = {
+    # ── 5 Ultra-Fast Scalping Selectivity Profiles ──
+    SELECTIVITY_PROFILES: dict = {
+        'SNIPER': {
+            'name': '🎯 القناص (Sniper)',
+            'min_score': 95,
+            'min_rr': 3.0,
+            'max_risk_pct': 1.0,
+            'description': 'دقة متناهية جداً ومعايير صارمة للغاية (أقل تكرار للصفقات)'
+        },
         'CONSERVATIVE': {
             'name': '🛡️ المحافظ (Conservative)',
             'min_score': 90,
-            'min_rr_scalp': 2.0,
-            'min_rr_swing': 3.0,
+            'min_rr': 2.5,
             'max_risk_pct': 1.0,
-            'require_strict_htf': True
+            'description': 'دقة مؤسساتية عالية مع حماية حذرة لرأس المال'
+        },
+        'BALANCED': {
+            'name': '⚖️ المتوازن (Balanced)',
+            'min_score': 82,
+            'min_rr': 2.0,
+            'max_risk_pct': 1.5,
+            'description': 'توازن مثالي بين الدقة وعدد الصفقات المتاحة (النمط الافتراضي)'
         },
         'AGGRESSIVE': {
             'name': '⚡ الهجومي (Aggressive)',
             'min_score': 75,
-            'min_rr_scalp': 1.5,
-            'min_rr_swing': 2.0,
+            'min_rr': 1.5,
             'max_risk_pct': 2.0,
-            'require_strict_htf': False
+            'description': 'اقتناص محركات الفرص السريعة بمرونة أعلى'
+        },
+        'ULTRA_AGGRESSIVE': {
+            'name': '🚀 الهجومي الفائق (Ultra Aggressive)',
+            'min_score': 65,
+            'min_rr': 1.2,
+            'max_risk_pct': 2.5,
+            'description': 'أعلى تكرار ممكن للصفقات وتفاعل فوري مع أدنى حركة'
         }
     }
-    DEFAULT_PROFILE: str = 'CONSERVATIVE'
+    DEFAULT_SELECTIVITY: str = 'BALANCED'
+
+    # ── Legacy Trading Profiles Compatibility ──
+    TRADING_PROFILES: dict = SELECTIVITY_PROFILES
+    DEFAULT_PROFILE: str = DEFAULT_SELECTIVITY
 
     # ── Risk Management ──
     MIN_RISK_REWARD_SCALP: float = 2.0

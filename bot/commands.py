@@ -494,31 +494,38 @@ class BotCommands:
             await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء إجراء الاختبار التاريخي.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _show_interactive_settings(self, chat_id: int, bot) -> None:
-        """Show user settings and profile toggle options."""
+        """Show user settings and profile toggle options across all 5 Selectivity Profiles."""
         current_profile = self._get_user_profile(chat_id)
-        cons_cfg = Config.TRADING_PROFILES['CONSERVATIVE']
-        agg_cfg = Config.TRADING_PROFILES['AGGRESSIVE']
+        profiles = Config.SELECTIVITY_PROFILES
+
+        profile_lines = []
+        for p_key, p_data in profiles.items():
+            active_mark = " 👈 (مفعل حالياً)" if current_profile == p_key else ""
+            profile_lines.append(
+                f"• *{p_data['name']}*{active_mark}:\n"
+                f"  - الحد الأدنى للتقييم: *{p_data['min_score']}/100* | أدنى عائد: *1:{p_data['min_rr']}*\n"
+                f"  - _{p_data['description']}_"
+            )
 
         text = (
-            f"⚙️ *إعدادات نمط التداول وشروط الفلترة*:\n"
+            f"⚙️ *إعدادات درجة الانتقائية وأنماط التداول المتاحة*:\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"النمط المفعل حالياً: *{Config.TRADING_PROFILES[current_profile]['name']}*\n\n"
-            f"• 🛡️ *النمط المحافظ (Conservative)*:\n"
-            f"  - الحد الأدنى للتقييم: *{cons_cfg['min_score']}/100*\n"
-            f"  - أدنى نسبة عائد للسكالب/السوينغ: *1:{cons_cfg['min_rr_scalp']} / 1:{cons_cfg['min_rr_swing']}*\n"
-            f"  - يركز على الصفقات فائقة التأكيد والقليلة التكرار.\n\n"
-            f"• ⚡ *النمط الهجومي (Aggressive)*:\n"
-            f"  - الحد الأدنى للتقييم: *{agg_cfg['min_score']}/100*\n"
-            f"  - أدنى نسبة عائد للسكالب/السوينغ: *1:{agg_cfg['min_rr_scalp']} / 1:{agg_cfg['min_rr_swing']}*\n"
-            f"  - يوفر فرصاً أكثر مع الحفاظ على إدارة المخاطر.\n"
+            + "\n\n".join(profile_lines) + "\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"اختر النمط المطلوب للبدء بالتطبيق الفوري:"
+            f"اختر درجة الانتقائية المطلوبة للتطبيق التلقائي الفوري:"
         )
 
         keyboard = [
             [
-                InlineKeyboardButton(f"{'✅ ' if current_profile == 'CONSERVATIVE' else ''}🛡️ المحافظ (90+)", callback_data="set_profile:CONSERVATIVE"),
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'SNIPER' else ''}🎯 القناص (95+)", callback_data="set_profile:SNIPER"),
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'CONSERVATIVE' else ''}🛡️ المحافظ (90+)", callback_data="set_profile:CONSERVATIVE")
+            ],
+            [
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'BALANCED' else ''}⚖️ المتوازن (82+)", callback_data="set_profile:BALANCED"),
                 InlineKeyboardButton(f"{'✅ ' if current_profile == 'AGGRESSIVE' else ''}⚡ الهجومي (75+)", callback_data="set_profile:AGGRESSIVE")
+            ],
+            [
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'ULTRA_AGGRESSIVE' else ''}🚀 الهجومي الفائق (65+)", callback_data="set_profile:ULTRA_AGGRESSIVE")
             ],
             [
                 InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")

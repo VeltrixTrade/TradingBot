@@ -242,9 +242,12 @@ class MessageFormatter:
         # Format FVGs
         fvg_text = "\n".join([f"  • {fvg}" for fvg in setup['fvgs']]) if setup['fvgs'] else "  • No open FVG"
 
-        msg = f"""🏆 تقرير الإشارة المؤسساتي | MUSTAFA BOT
+        strategy_title = setup.get('strategy_name', '🏛️ Multi-Strategy Engine')
+        rank_score_str = f" | Rank: {setup['rank_score']}" if 'rank_score' in setup else ""
+
+        msg = f"""⚡ *إشارة سكالبينغ فورية* | {strategy_title}
 ━━━━━━━━━━━━━━━━━━━━
-⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة
+⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة{rank_score_str}
 
 Symbol: {symbol}
 Trade Type: {dir_emoji}
