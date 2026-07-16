@@ -264,9 +264,26 @@ class BotCommands:
             await self._show_interactive_settings(chat_id, context.bot)
             return
 
-        # 3. MT5 Wizard Callbacks
+        # 3. MT5 Wizard Callbacks & Calibration
         elif data == "btn_mt5_account" or data == "btn_mt5_settings":
             await self._show_interactive_mt5_dashboard(chat_id, context.bot)
+
+        elif data == "btn_calibrate_price":
+            await self._show_price_calibration_screen(chat_id, context.bot)
+
+        elif data.startswith("adjust_offset:"):
+            change_val = float(data.split(":")[1])
+            sym_key = self.user_symbols.get(chat_id, 'XAU/USD')
+            from data.price_calibrator import BrokerPriceCalibrator
+            calibrator = BrokerPriceCalibrator()
+            
+            if change_val == 0.0:
+                calibrator.reset_user_offset(chat_id, sym_key)
+            else:
+                current_off = calibrator.get_user_offset(chat_id, sym_key)
+                calibrator.set_user_offset(chat_id, sym_key, current_off + change_val)
+            
+            await self._show_price_calibration_screen(chat_id, context.bot)
 
         elif data == "btn_start_mt5_wizard":
             self.mt5_wizard.start_wizard(chat_id)
@@ -441,6 +458,14 @@ class BotCommands:
             conn_status = "نشط ومتصل ✅" if self.mt5_mgr.is_initialized else "غير متصل ❌"
             sym_count = len(self.mt5_mgr.broker_symbols)
 
+            sym_key = self.user_symbols.get(chat_id, 'XAU/USD')
+            from data.price_fetcher import PriceFetcher
+            from data.price_calibrator import BrokerPriceCalibrator
+            calibrator = BrokerPriceCalibrator()
+
+            current_p = PriceFetcher(sym_key).get_current_price(chat_id=chat_id)
+            current_offset = calibrator.get_user_offset(chat_id, sym_key)
+
             text = (
                 f"⚙️ *إعدادات ولوحة تحكم حساب MetaTrader 5*:\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -448,19 +473,21 @@ class BotCommands:
                 f"🌐 الخادم: *{server}*\n"
                 f"🔢 رقم الحساب: `{login}`\n"
                 f"🔐 كلمة المرور: `{masked_pwd}` (مشفرة AES)\n"
-                f"📡 حالة الاتصال المباشر: *{conn_status}*\n"
-                f"📈 الرموز المفعلة: *{sym_count} أصول تداول*\n"
+                f"📡 حالة الاتصال: *{conn_status}*\n"
+                f"📈 الرمز الحالي: *{sym_key}*\n"
+                f"💲 السعر المباشر الآن: `{current_p}` (الفارق: `{current_offset:+.2f}`)\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"اختر الخيار المطلوب أدناه:"
             )
 
             keyboard = [
                 [
-                    InlineKeyboardButton("🔄 إعادة الاتصال", callback_data="btn_confirm_mt5_connect"),
-                    InlineKeyboardButton("✏️ تغيير الحساب", callback_data="btn_start_mt5_wizard")
+                    InlineKeyboardButton("🎯 معايرة أسعار الوسيط", callback_data="btn_calibrate_price"),
+                    InlineKeyboardButton("🔄 إعادة الاتصال", callback_data="btn_confirm_mt5_connect")
                 ],
                 [
-                    InlineKeyboardButton("🗑️ قطع الاتصال وإزالة الحساب", callback_data="btn_disconnect_mt5")
+                    InlineKeyboardButton("✏️ تغيير الحساب", callback_data="btn_start_mt5_wizard"),
+                    InlineKeyboardButton("🗑️ إزالة الحساب", callback_data="btn_disconnect_mt5")
                 ],
                 [
                     InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
@@ -672,3 +699,44 @@ class BotCommands:
 🤖 Mustafa Bot v3.5 MT5 Integrated"""
         keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
         await self.msg_manager.send_or_edit(bot, chat_id, help_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_price_calibration_screen(self, chat_id: int, bot) -> None:
+        """Render interactive broker price calibration controls."""
+        sym_key = self.user_symbols.get(chat_id, 'XAU/USD')
+        from data.price_fetcher import PriceFetcher
+        from data.price_calibrator import BrokerPriceCalibrator
+        calibrator = BrokerPriceCalibrator()
+
+        fetcher = PriceFetcher(sym_key)
+        raw_p = fetcher._fetch_raw_current_price() or 0.0
+        calibrated_p = fetcher.get_current_price(chat_id=chat_id) or raw_p
+        offset = calibrator.get_user_offset(chat_id, sym_key)
+
+        text = (
+            f"🎯 *شاشة معايرة ضبط أسعار الوسيط (Broker Price Calibration)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📈 الرمز المحدد: *{sym_key}*\n"
+            f"📡 السعر الخام العام: `{raw_p:.4f}`\n"
+            f"💲 السعر المعاير المعروض لك: `{calibrated_p:.4f}`\n"
+            f"⚖️ الفارق المطبق حالياً: `({offset:+.4f})`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"إذا لاحظت وجود فارق بسيط بين سعر الشارت وسعر منصة وسيطك (JustMarkets)، اضغط الأزرار أدناه للتعيديل الفوري:"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ زيادة (+1.00)", callback_data="adjust_offset:1.0"),
+                InlineKeyboardButton("➖ إنقاص (-1.00)", callback_data="adjust_offset:-1.0")
+            ],
+            [
+                InlineKeyboardButton("➕ (+0.10)", callback_data="adjust_offset:0.1"),
+                InlineKeyboardButton("➖ (-0.10)", callback_data="adjust_offset:-0.1")
+            ],
+            [
+                InlineKeyboardButton("🔄 إزالة الفارق وإعادة الضبط", callback_data="adjust_offset:0.0")
+            ],
+            [
+                InlineKeyboardButton("⬅️ العودة لإعدادات MT5", callback_data="btn_mt5_settings")
+            ]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))

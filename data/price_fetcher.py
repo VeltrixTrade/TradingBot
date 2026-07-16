@@ -21,8 +21,18 @@ class PriceFetcher:
         self.symbol_key = symbol_key
         self.mt5_mgr = MT5ConnectionManager()
 
-    def get_current_price(self) -> Optional[float]:
-        """Fetch current real-time market price using multi-tier direct streaming providers."""
+    def get_current_price(self, chat_id: Optional[int] = None) -> Optional[float]:
+        """Fetch current real-time market price using multi-tier direct streaming providers with broker offset calibration."""
+        from data.price_calibrator import BrokerPriceCalibrator
+        calibrator = BrokerPriceCalibrator()
+
+        raw_price = self._fetch_raw_current_price()
+        if raw_price and raw_price > 0 and chat_id:
+            return calibrator.apply_offset(raw_price, chat_id, self.symbol_key)
+        return raw_price
+
+    def _fetch_raw_current_price(self) -> Optional[float]:
+        """Internal raw price fetcher without offsets."""
         # Tier 1: MT5 Native Terminal (if running locally/VDS)
         if not self.mt5_mgr.cloud_mode and self.mt5_mgr.is_initialized:
             info = self.mt5_mgr.get_symbol_info(self.symbol_key)
