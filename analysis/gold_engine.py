@@ -30,11 +30,15 @@ class GoldMarketAnalysisEngine:
         self.smc_engine = SMCICTEngine()
         self.triple_ema = TripleEMACrossover(fast=5, medium=20, slow=50)
 
-    def analyze_market(self, dataframes: Dict[str, pd.DataFrame], signal_type: str = 'SCALP') -> Dict:
+    def analyze_market(self, dataframes: Dict[str, pd.DataFrame], signal_type: str = 'SCALP', symbol_key: str = 'XAU/USD') -> Dict:
         """Run complete institutional multi-timeframe analysis from Monthly to M5.
 
         Returns a detailed report dict with setups, scores, and explanations.
         """
+        from config import Config
+        symbol_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, Config.SUPPORTED_SYMBOLS['XAU/USD'])
+        decimals = symbol_info.get('decimal_places', 2)
+
         # Required timeframes order
         tf_order = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
         
@@ -117,10 +121,10 @@ class GoldMarketAnalysisEngine:
             
             rr = abs(tp1 - entry) / max(0.01, abs(entry - stop_loss))
             if rr < min_rr:
-                # Adjust targets to fit institutional risk management
-                tp1 = round(entry + (entry - stop_loss) * min_rr, 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * min_rr, 2)
-                tp2 = round(entry + (entry - stop_loss) * (min_rr + 1.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 1.0), 2)
-                tp3 = round(entry + (entry - stop_loss) * (min_rr + 3.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 3.0), 2)
+                # Adjust targets to fit institutional risk management using correct decimals
+                tp1 = round(entry + (entry - stop_loss) * min_rr, decimals) if direction == 'BUY' else round(entry - (stop_loss - entry) * min_rr, decimals)
+                tp2 = round(entry + (entry - stop_loss) * (min_rr + 1.0), decimals) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 1.0), decimals)
+                tp3 = round(entry + (entry - stop_loss) * (min_rr + 3.0), decimals) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 3.0), decimals)
                 rr = min_rr
             
             # Calculate institutional quality score (0-100) using the Dynamic Confidence Engine
@@ -166,6 +170,8 @@ class GoldMarketAnalysisEngine:
                     risk_pct = "0.25% (Reduced due to Extreme Volatility)"
 
                 inst_setup = {
+                    'symbol': symbol_key,
+                    'timeframe_name': exec_tf.upper(),
                     'direction': direction,
                     'entry': entry,
                     'stop_loss': stop_loss,

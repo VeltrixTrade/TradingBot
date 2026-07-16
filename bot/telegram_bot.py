@@ -31,7 +31,7 @@ class SignalEngine:
     def __init__(self):
         logger.info('Initializing Signal Engine...')
 
-        self.price_fetcher = PriceFetcher(Config.SYMBOL, Config.EXCHANGE)
+        self.price_fetchers = {}
         self.smc_engine = SMCICTEngine()
         self.gold_engine = GoldMarketAnalysisEngine()
         self.ai_manager = AIManager(
@@ -53,25 +53,32 @@ class SignalEngine:
 
         logger.info('✅ Signal Engine initialized')
 
-    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False) -> List[Signal]:
-        """Run complete institutional multi-timeframe analysis pipeline."""
+    def get_fetcher(self, symbol_key: str) -> PriceFetcher:
+        """Get or create PriceFetcher for the symbol key."""
+        if symbol_key not in self.price_fetchers:
+            self.price_fetchers[symbol_key] = PriceFetcher(symbol_key)
+        return self.price_fetchers[symbol_key]
+
+    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False, symbol_key: str = 'XAU/USD') -> List[Signal]:
+        """Run complete institutional multi-timeframe analysis pipeline for a specific symbol."""
         try:
-            logger.info(f'🔄 Starting institutional {signal_type} analysis (Manual: {is_manual})...')
+            logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual})...')
 
             # 1. Fetch all 8 required timeframes
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
-            data = self.price_fetcher.get_multi_timeframe_data(tf_list)
+            fetcher = self.get_fetcher(symbol_key)
+            data = fetcher.get_multi_timeframe_data(tf_list)
 
             if not data or len(data) < len(tf_list):
-                logger.warning(f'Incomplete price data available. Got: {list(data.keys())}')
+                logger.warning(f'Incomplete price data available for {symbol_key}. Got: {list(data.keys())}')
                 return []
 
             # 2. Run institutional analysis engine
-            report = self.gold_engine.analyze_market(data, signal_type)
+            report = self.gold_engine.analyze_market(data, signal_type, symbol_key=symbol_key)
             setups = report.get('setups', [])
 
             if not setups:
-                logger.info(f'No setups passing the 90/100 Trade Quality Score filter for {signal_type}')
+                logger.info(f'No setups passing the 90/100 Trade Quality Score filter for {symbol_key} ({signal_type})')
                 return []
 
             # Convert setups to Signal models
@@ -138,7 +145,7 @@ class SignalEngine:
             if filtered:
                 self.active_signals.extend(filtered)
                 self.total_signals += len(filtered)
-                logger.info(f'✅ {len(filtered)} {signal_type} unique signal(s) ready to send')
+                logger.info(f'✅ {len(filtered)} {symbol_key} {signal_type} unique signal(s) ready to send')
 
             return filtered
 
@@ -146,14 +153,15 @@ class SignalEngine:
             logger.error(f'Institutional analysis pipeline error: {e}', exc_info=True)
             return []
 
-    async def get_market_analysis(self) -> str:
-        """Get formatted market analysis text with Multi-Timeframe Trend Dashboard."""
+    async def get_market_analysis(self, symbol_key: str = 'XAU/USD') -> str:
+        """Get formatted market analysis text with Multi-Timeframe Trend Dashboard for a specific symbol."""
         try:
-            data = self.price_fetcher.get_multi_timeframe_data(['15m', '1h', '4h'])
+            fetcher = self.get_fetcher(symbol_key)
+            data = fetcher.get_multi_timeframe_data(['15m', '1h', '4h'])
             if not data:
                 return '❌ لا يمكن جلب بيانات السوق حالياً'
 
-            current_price = self.price_fetcher.get_current_price() or 0
+            current_price = fetcher.get_current_price() or 0
 
             # Perform MTF analysis
             mtf_result = self.smc_engine.multi_timeframe_analysis(data)
@@ -183,7 +191,7 @@ class SignalEngine:
             else:
                 harmony = "⚠️ تعارض اتجاهي بين الفريمات (يُنصح بالتداول بحذر وانتظار الاستقرار)"
 
-            mtf_dashboard = f"""🌍 لوحة الاتجاهات متعددة الأطر (MTF Dashboard):
+            mtf_dashboard = f"""🌍 لوحة الاتجاهات متعددة الأطر (MTF Dashboard) - {symbol_key}:
   • 15m (إطار السكالب): {t15}
   • 1h  (الإطار اليومي): {t1h}
   • 4h  (إطار الاتجاه): {t4h}
@@ -208,10 +216,11 @@ class SignalEngine:
             logger.error(f'Market analysis error: {e}', exc_info=True)
             return f'❌ خطأ في التحليل: {str(e)[:100]}'
 
-    async def get_prediction(self) -> str:
-        """Get formatted prediction text."""
+    async def get_prediction(self, symbol_key: str = 'XAU/USD') -> str:
+        """Get formatted prediction text for a specific symbol."""
         try:
-            data = self.price_fetcher.get_multi_timeframe_data(['1h', '4h', '1d'])
+            fetcher = self.get_fetcher(symbol_key)
+            data = fetcher.get_multi_timeframe_data(['1h', '4h', '1d'])
             if not data:
                 return '❌ لا يمكن جلب البيانات'
 
@@ -255,7 +264,7 @@ class MustafaBot:
             logger.error(f'Error sending signal: {e}')
 
     async def scheduled_analysis(self) -> None:
-        """Run scheduled analysis and send signals if found."""
+        """Run scheduled analysis and send signals if found for all symbols."""
         if self._analysis_running:
             return
 
@@ -266,18 +275,19 @@ class MustafaBot:
             kill_zone = AnalysisScheduler.get_active_kill_zone() or "None (Continuous Scan)"
             logger.info(f'⏰ Running scheduled analysis (Kill Zone: {kill_zone})')
 
-            # Run scalp analysis
-            scalp_signals = await self.engine.run_analysis('SCALP')
-            for signal in scalp_signals:
-                await self.send_signal(signal)
-
-            # Run swing analysis (less frequently)
-            current_minute = datetime.now(timezone.utc).minute
-            if current_minute < 5:  # Only at the top of each hour
-                swing_signals = await self.engine.run_analysis('SWING')
-                for signal in swing_signals:
+            # Run analysis for all supported symbols
+            for sym_key in Config.SUPPORTED_SYMBOLS.keys():
+                # Run scalp analysis
+                scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key)
+                for signal in scalp_signals:
                     await self.send_signal(signal)
 
+                # Run swing analysis (less frequently)
+                current_minute = datetime.now(timezone.utc).minute
+                if current_minute < 5:  # Only at the top of each hour
+                    swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key)
+                    for signal in swing_signals:
+                        await self.send_signal(signal)
         except Exception as e:
             logger.error(f'Scheduled analysis error: {e}', exc_info=True)
         finally:
@@ -315,6 +325,7 @@ class MustafaBot:
         self.app.add_handler(CommandHandler('predict', self.commands.predict_command))
         self.app.add_handler(CommandHandler('status', self.commands.status_command))
         self.app.add_handler(CommandHandler('help', self.commands.help_command))
+        self.app.add_handler(CommandHandler('symbol', self.commands.symbol_command))
 
         # Add text message handler for custom keyboard buttons and AI chat
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.commands.handle_message))

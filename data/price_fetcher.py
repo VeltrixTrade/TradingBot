@@ -12,11 +12,18 @@ logger = logging.getLogger('mustafa_bot.data')
 
 
 class PriceFetcher:
-    """Fetches live XAUUSD price data from TradingView via tvdatafeed."""
+    """Fetches live price data for supported symbols."""
 
-    def __init__(self, symbol: str = 'XAUUSD', exchange: str = 'OANDA'):
-        self.symbol = symbol
-        self.exchange = exchange
+    def __init__(self, symbol_key: str = 'XAU/USD'):
+        from config import Config
+        self.symbol_key = symbol_key
+        symbol_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, Config.SUPPORTED_SYMBOLS['XAU/USD'])
+        
+        self.symbol = symbol_info['tradingview_symbol']
+        self.exchange = symbol_info['tradingview_exchange']
+        self.yfinance_symbol = symbol_info['yfinance_symbol']
+        self.binance_symbol = symbol_info['binance_symbol']
+        
         self.tv = None
         self.Interval = None
         self.interval_map = {}
@@ -136,7 +143,7 @@ class PriceFetcher:
                 return None
 
             limit = min(1000, n_bars)
-            url = f'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit={limit}'
+            url = f'https://api.binance.com/api/v3/klines?symbol={self.binance_symbol}&interval={interval}&limit={limit}'
 
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -188,7 +195,7 @@ class PriceFetcher:
                 return None
 
             yf_interval, yf_period = tf_map[timeframe]
-            ticker = yf.Ticker('GC=F')
+            ticker = yf.Ticker(self.yfinance_symbol)
             df = ticker.history(period=yf_period, interval=yf_interval)
 
             if df is None or df.empty:

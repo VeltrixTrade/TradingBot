@@ -16,6 +16,50 @@ class Config:
     TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '') or os.getenv('TELEGRAM_CHANNEL_ID', '')
 
+    # ── Supported Instruments ──
+    SUPPORTED_SYMBOLS: dict = {
+        'XAU/USD': {
+            'display': '🟡 XAU/USD (Gold)',
+            'yfinance_symbol': 'GC=F',
+            'binance_symbol': 'PAXGUSDT',
+            'tradingview_symbol': 'XAUUSD',
+            'tradingview_exchange': 'OANDA',
+            'pip_multiplier': 0.1,
+            'default_spread': 0.3,
+            'decimal_places': 2
+        },
+        'EUR/USD': {
+            'display': '🔵 EUR/USD',
+            'yfinance_symbol': 'EURUSD=X',
+            'binance_symbol': 'EURUSDT',
+            'tradingview_symbol': 'EURUSD',
+            'tradingview_exchange': 'FX_IDC',
+            'pip_multiplier': 0.0001,
+            'default_spread': 0.00015,
+            'decimal_places': 5
+        },
+        'GBP/USD': {
+            'display': '🟢 GBP/USD',
+            'yfinance_symbol': 'GBPUSD=X',
+            'binance_symbol': 'GBPUSDT',
+            'tradingview_symbol': 'GBPUSD',
+            'tradingview_exchange': 'FX_IDC',
+            'pip_multiplier': 0.0001,
+            'default_spread': 0.0002,
+            'decimal_places': 5
+        },
+        'USD/JPY': {
+            'display': '🟣 USD/JPY',
+            'yfinance_symbol': 'USDJPY=X',
+            'binance_symbol': 'USDJPY',
+            'tradingview_symbol': 'USDJPY',
+            'tradingview_exchange': 'FX_IDC',
+            'pip_multiplier': 0.01,
+            'default_spread': 0.015,
+            'decimal_places': 3
+        }
+    }
+
 
     # ── AI API Keys ──
     DEEPSEEK_API_KEY: str = os.getenv('DEEPSEEK_API_KEY', '')

@@ -171,11 +171,22 @@ class MessageFormatter:
 
     @staticmethod
     def format_institutional_signal(setup: dict) -> str:
-        """Format an institutional gold trade setup into a highly structured report."""
+        """Format an institutional trade setup into a highly structured report."""
         dir_emoji = '🟢 BUY' if setup['direction'] == 'BUY' else '🔴 SELL'
         
         from datetime import datetime, timedelta
         mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
+
+        # Determine dynamic decimals based on symbol
+        symbol = setup.get('symbol', 'XAU/USD')
+        decimals = 5 if ('EUR/USD' in symbol or 'GBP/USD' in symbol) else 3 if 'USD/JPY' in symbol else 2
+        price_fmt = f",.{decimals}f"
+        
+        entry_str = f"{setup['entry']:{price_fmt}}"
+        sl_str = f"{setup['stop_loss']:{price_fmt}}"
+        tp1_str = f"{setup['tp1']:{price_fmt}}"
+        tp2_str = f"{setup['tp2']:{price_fmt}}"
+        tp3_str = f"{setup['tp3']:{price_fmt}}"
 
         # Formulate status bars
         def make_progress_bar(percentage: int, total_chars: int = 10, fill_char: str = '🔥', empty_char: str = '⬜') -> str:
@@ -193,18 +204,22 @@ class MessageFormatter:
         # Format FVGs
         fvg_text = "\n".join([f"  • {fvg}" for fvg in setup['fvgs']]) if setup['fvgs'] else "  • No open FVG"
 
-        msg = f"""🏆 تقرير الإشارة المؤسساتي | GOLD REPORT
+        msg = f"""🏆 تقرير الإشارة المؤسساتي | MUSTAFA BOT
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة
 
-📈 إعداد الصفقة: {dir_emoji}
-💰 سعر الدخول المقترح: {setup['entry']:,.2f}
-🛑 وقف الخسارة (Stop Loss): {setup['stop_loss']:,.2f}
-🎯 الهدف الأول (TP1): {setup['tp1']:,.2f}
-🎯 الهدف الثاني (TP2): {setup['tp2']:,.2f}
-🎯 الهدف الثالث (TP3): {setup['tp3']:,.2f}
-⚖️ نسبة العائد للمخاطرة (R:R): 1:{setup['risk_reward']:.1f}
+Symbol: {symbol}
+Trade Type: {dir_emoji}
+Entry: {entry_str}
+Stop Loss: {sl_str}
+Take Profit 1: {tp1_str}
+Take Profit 2: {tp2_str}
+Risk-to-Reward: 1:{setup['risk_reward']:.1f}
+Confidence Score: {score}/100
+Timeframe: {setup.get('timeframe_name', 'M15')}
+Reason for Entry: {setup['reasons_entry']}
 
+━━━━━━━━━━━━━━━━━━━━
 📊 معطيات التحليل والهيكل:
   • اتجاه السوق (Bias): {setup['market_bias']}
   • الاتجاه الحالي (Trend): {setup['trend_direction']}
@@ -227,16 +242,18 @@ class MessageFormatter:
   • تأكيد السيولة المؤسساتية: {setup['institutional_confirmation']}
   • فحص الزخم (Momentum): {setup['momentum_analysis']}
   • جلسة التداول النشطة: {setup['session_analysis']}
+  • معدل التذبذب والسيولة: {setup.get('volatility_analysis', 'N/A')}
 
 ⚡ درجة جودة الصفقة (Quality Score): {score}/100
   [{score_bar}]
 🧠 نسبة الثقة: {setup['confidence']}%
+🛡️ مستوى إدارة المخاطر: {setup.get('risk_pct', '1.0%')}
 
 📝 المنطق والتبرير الفني للدخول:
 {setup['reasoning']}
 ━━━━━━━━━━━━━━━━━━━━
-⚠️ إخلاء مسؤولية: تداول الذهب محاط بمخاطر عالية. ليست نصيحة استثمارية.
-🤖 MUSTAFA BOT | INSTITUTIONAL GOLD ENGINE"""
+⚠️ إخلاء مسؤولية: تداول العملات والمعادن محاط بمخاطر عالية. ليست نصيحة استثمارية.
+🤖 MUSTAFA BOT | MULTI-SYMBOL ENGINE"""
         return msg
 
     @staticmethod
