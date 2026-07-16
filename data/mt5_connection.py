@@ -53,85 +53,71 @@ class MT5ConnectionManager:
             }
 
     def connect(self, chat_id: Optional[int] = None) -> bool:
-        """Establish or verify direct connection to installed MetaTrader 5 terminal."""
-        if not MT5_AVAILABLE or mt5 is None:
-            self.diagnostics.update_data_feed_status("MT5_PACKAGE_MISSING")
-            logger.warning("MetaTrader5 package is unavailable in environment")
-            return False
+        """Establish connection to MT5 terminal (native) or Bridge API (cloud)."""
 
-        try:
-            init_kwargs = {}
-            if Config.MT5_PATH and os.path.exists(Config.MT5_PATH):
-                init_kwargs['path'] = Config.MT5_PATH
+        # ── Attempt 1: Native MT5 Terminal (Windows only) ──
+        if MT5_AVAILABLE and mt5 is not None:
+            try:
+                init_kwargs = {}
+                if Config.MT5_PATH and os.path.exists(Config.MT5_PATH):
+                    init_kwargs['path'] = Config.MT5_PATH
 
-            login_id = Config.MT5_LOGIN
-            if chat_id:
-                from database.db_manager import DatabaseManager
-                acc_db = DatabaseManager().get_mt5_account(chat_id)
-                if acc_db:
-                    login_id = acc_db.get('login', login_id)
-                    if acc_db.get('server'): init_kwargs['server'] = acc_db['server']
-                    if acc_db.get('encrypted_password'):
-                        from utils.crypto_vault import CryptoVault
-                        init_kwargs['password'] = CryptoVault().decrypt_secret(acc_db['encrypted_password'])
+                login_id = Config.MT5_LOGIN
+                if chat_id:
+                    from database.db_manager import DatabaseManager
+                    acc_db = DatabaseManager().get_mt5_account(chat_id)
+                    if acc_db:
+                        login_id = acc_db.get('login', login_id)
+                        if acc_db.get('server'): init_kwargs['server'] = acc_db['server']
+                        if acc_db.get('encrypted_password'):
+                            from utils.crypto_vault import CryptoVault
+                            init_kwargs['password'] = CryptoVault().decrypt_secret(acc_db['encrypted_password'])
 
-            if login_id > 0:
-                init_kwargs['login'] = login_id
+                if login_id > 0:
+                    init_kwargs['login'] = login_id
 
-            # Initialize MT5 terminal connection
-            initialized = mt5.initialize(**init_kwargs)
+                initialized = mt5.initialize(**init_kwargs)
 
-            if not initialized:
-                err_code, err_msg = mt5.last_error()
-                logger.error(f"Failed to initialize direct MetaTrader 5 terminal: Code {err_code} ({err_msg})")
-                self.diagnostics.log_event("MT5Connection", "ERROR", f"MT5 direct connection failed: {err_msg}")
-                self.diagnostics.update_data_feed_status("DISCONNECTED")
-                self.is_initialized = False
-                return False
+                if initialized:
+                    term_raw = mt5.terminal_info()
+                    acc_raw = mt5.account_info()
 
-            term_raw = mt5.terminal_info()
-            acc_raw = mt5.account_info()
+                    if term_raw and acc_raw:
+                        self.is_initialized = True
+                        self.active_account_info = {
+                            'login': acc_raw.login,
+                            'server': acc_raw.server,
+                            'company': acc_raw.company,
+                            'name': acc_raw.name,
+                            'currency': acc_raw.currency,
+                            'balance': acc_raw.balance,
+                            'equity': acc_raw.equity,
+                            'margin_free': acc_raw.margin_free,
+                            'leverage': acc_raw.leverage
+                        }
+                        self.terminal_info = {
+                            'community_account': term_raw.community_account,
+                            'connected': term_raw.connected,
+                            'ping_last': term_raw.ping_last,
+                            'build': term_raw.build,
+                            'name': term_raw.name,
+                            'path': term_raw.path,
+                            'data_path': term_raw.data_path
+                        }
+                        ping_ms = round(term_raw.ping_last / 1000.0, 1) if term_raw.ping_last else 0.0
+                        self.diagnostics.update_data_feed_status(f"CONNECTED (MT5 Direct | {ping_ms}ms)")
+                        logger.info(f"Pure Native MT5 Terminal Active: Account {acc_raw.login} ({acc_raw.company}) | Ping: {ping_ms}ms | Build: {term_raw.build}")
+                        self.discover_symbols()
+                        return True
+                else:
+                    err_code, err_msg = mt5.last_error()
+                    logger.debug(f"Native MT5 init failed: Code {err_code} ({err_msg})")
+            except Exception as e:
+                logger.debug(f"Native MT5 connection attempt: {e}")
+        else:
+            logger.info("MetaTrader5 package unavailable, trying Bridge API fallback...")
 
-            if term_raw is None or acc_raw is None:
-                logger.warning("MT5 connected but account/terminal details unavailable")
-                self.is_initialized = False
-                return False
-
-            self.is_initialized = True
-            self.active_account_info = {
-                'login': acc_raw.login,
-                'server': acc_raw.server,
-                'company': acc_raw.company,
-                'name': acc_raw.name,
-                'currency': acc_raw.currency,
-                'balance': acc_raw.balance,
-                'equity': acc_raw.equity,
-                'margin_free': acc_raw.margin_free,
-                'leverage': acc_raw.leverage
-            }
-
-            self.terminal_info = {
-                'community_account': term_raw.community_account,
-                'connected': term_raw.connected,
-                'ping_last': term_raw.ping_last,
-                'build': term_raw.build,
-                'name': term_raw.name,
-                'path': term_raw.path,
-                'data_path': term_raw.data_path
-            }
-
-            ping_ms = round(term_raw.ping_last / 1000.0, 1) if term_raw.ping_last else 0.0
-            self.diagnostics.update_data_feed_status(f"CONNECTED (MT5 Direct | {ping_ms}ms)")
-            logger.info(f"✅ Pure Native MT5 Terminal Active: Account {acc_raw.login} ({acc_raw.company}) | Ping: {ping_ms}ms | Build: {term_raw.build}")
-
-            # Auto-discover broker symbol names
-            self.discover_symbols()
-            return True
-
-        except Exception as e:
-            logger.debug(f"Direct MT5 native connection check: {e}")
-
-        # Check MT5 FastAPI Bridge Client (For Railway Cloud execution connecting to local PC Bridge API)
+        # ── Attempt 2: FastAPI MT5 Bridge Client (Railway / Linux / Cloud) ──
         try:
             from data.mt5_bridge_client import MT5BridgeClient
             client = MT5BridgeClient()
@@ -153,10 +139,10 @@ class MT5ConnectionManager:
                     'build': health.get('build', 4400)
                 }
                 self.diagnostics.update_data_feed_status(f"CONNECTED (FastAPI MT5 Bridge | {health.get('ping_ms')}ms)")
-                logger.info(f"✅ Connected to FastAPI MT5 Bridge API Server: Broker={health.get('broker')} | Ping={health.get('ping_ms')}ms")
+                logger.info(f"Connected to FastAPI MT5 Bridge API: Broker={health.get('broker')} | Ping={health.get('ping_ms')}ms")
                 return True
         except Exception as ex:
-            logger.debug(f"MT5 Bridge Client check: {ex}")
+            logger.debug(f"MT5 Bridge Client connection attempt: {ex}")
 
         self.is_initialized = False
         self.diagnostics.update_data_feed_status("DISCONNECTED")
