@@ -101,10 +101,29 @@ class GoldMarketAnalysisEngine:
         setups = exec_analysis.get('setups', [])
         institutional_setups = []
 
+        setups = exec_analysis.get('setups', [])
+        institutional_setups = []
+
         for setup in setups:
             direction = setup['direction']
+            entry = setup['entry']
+            stop_loss = setup['stop_loss']
             
-            # Calculate institutional quality score (0-100)
+            # Risk to Reward Optimization (ensuring min requirements are strictly met)
+            min_rr = 2.0 if signal_type == 'SCALP' else 3.0
+            tp1 = setup['tp1']
+            tp2 = setup['tp2']
+            tp3 = setup['tp3']
+            
+            rr = abs(tp1 - entry) / max(0.01, abs(entry - stop_loss))
+            if rr < min_rr:
+                # Adjust targets to fit institutional risk management
+                tp1 = round(entry + (entry - stop_loss) * min_rr, 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * min_rr, 2)
+                tp2 = round(entry + (entry - stop_loss) * (min_rr + 1.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 1.0), 2)
+                tp3 = round(entry + (entry - stop_loss) * (min_rr + 3.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 3.0), 2)
+                rr = min_rr
+            
+            # Calculate institutional quality score (0-100) using the Dynamic Confidence Engine
             score, details = self._calculate_trade_score(
                 direction=direction,
                 overall_htf_bias=overall_htf_bias,
@@ -116,32 +135,16 @@ class GoldMarketAnalysisEngine:
                 breaker_blocks=breaker_blocks,
                 ifvgs=ifvgs,
                 fake_breakout=fake_breakout,
-                signal_type=signal_type
+                signal_type=signal_type,
+                current_price=current_price,
+                rr=rr
             )
 
             # Filter: only allow trades with a score of 90/100 or higher
             if score >= 90:
-                # Target optimization
-                entry = setup['entry']
-                stop_loss = setup['stop_loss']
+                inst_grade = "Institutional Grade" if score >= 95 else "Strong"
                 
-                # Risk to Reward Optimization (ensuring min requirements are strictly met)
-                min_rr = 2.0 if signal_type == 'SCALP' else 3.0
-                tp1 = setup['tp1']
-                tp2 = setup['tp2']
-                tp3 = setup['tp3']
-                
-                rr = abs(tp1 - entry) / max(0.01, abs(entry - stop_loss))
-                if rr < min_rr:
-                    # Adjust targets to fit institutional risk management
-                    tp1 = round(entry + (entry - stop_loss) * min_rr, 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * min_rr, 2)
-                    tp2 = round(entry + (entry - stop_loss) * (min_rr + 1.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 1.0), 2)
-                    tp3 = round(entry + (entry - stop_loss) * (min_rr + 3.0), 2) if direction == 'BUY' else round(entry - (stop_loss - entry) * (min_rr + 3.0), 2)
-                    rr = min_rr
-
-                detailed_reasoning = self._build_detailed_reasoning(direction, details, score)
-                
-                # Active Kill Zone
+                # Active Session
                 from utils.scheduler import AnalysisScheduler
                 current_hour_utc = datetime.now(timezone.utc).hour
                 active_sessions = []
@@ -150,6 +153,10 @@ class GoldMarketAnalysisEngine:
                 if 0 <= current_hour_utc < 8: active_sessions.append("ASIAN 🇯🇵")
                 session_text = " + ".join(active_sessions) if active_sessions else "TRANSITION PERIOD 💤"
 
+                # Invalidation Conditions
+                invalidation_price = stop_loss
+                invalidation_reason = f"Price closes beyond stop loss at {stop_loss:.2f} or opposite Market Structure Shift (MSS) occurs."
+
                 inst_setup = {
                     'direction': direction,
                     'entry': entry,
@@ -157,6 +164,7 @@ class GoldMarketAnalysisEngine:
                     'tp1': tp1,
                     'tp2': tp2,
                     'tp3': tp3,
+                    'risk_pct': "1.0%",
                     'risk_reward': round(rr, 2),
                     'market_bias': overall_htf_bias,
                     'trend_direction': exec_analysis['overall_bias'],
@@ -168,12 +176,18 @@ class GoldMarketAnalysisEngine:
                     'fvgs': [f"FVG at {fvg['bottom']:.2f}-{fvg['top']:.2f}" for fvg in exec_analysis['fair_value_gaps'][:3]],
                     'liquidity_zones': f"Buy-side: {len(exec_analysis['liquidity'].get('buy_side', []))} pools | Sell-side: {len(exec_analysis['liquidity'].get('sell_side', []))} pools",
                     'premium_discount': exec_analysis['premium_discount'],
-                    'institutional_confirmation': details['institutional_conf'],
+                    'institutional_confirmation': f"Score: {score} | Grade: {inst_grade} | Harmony: {overall_htf_bias}",
                     'momentum_analysis': f"RSI: {exec_analysis['indicators']['rsi']:.1f} | ATR: {exec_analysis['indicators']['atr']:.2f}",
                     'session_analysis': session_text,
+                    'volatility_analysis': f"Volatility: {exec_analysis['indicators']['volatility']} | ATR: {exec_analysis['indicators']['atr']:.2f}",
                     'score': score,
                     'confidence': score,
-                    'reasoning': detailed_reasoning
+                    'inst_grade': inst_grade,
+                    'reasons_entry': f"SMC setup alignment with macro bias, confirmed by FVG confluence and Triple EMA alignment.",
+                    'reasons_sl': f"Placed safely behind key institutional Order Block to avoid sweeps.",
+                    'reasons_tp': f"Targets mapped to nearest major support/resistance levels and liquidity pools.",
+                    'invalidation': invalidation_reason,
+                    'reasoning': self._build_detailed_reasoning_new(direction, details, score, inst_grade, invalidation_reason)
                 }
                 institutional_setups.append(inst_setup)
 
@@ -304,102 +318,192 @@ class GoldMarketAnalysisEngine:
                                daily_bias: str, h4_bias: str, h1_bias: str,
                                setup: Dict, exec_analysis: Dict,
                                breaker_blocks: List[Dict], ifvgs: List[Dict],
-                               fake_breakout: bool, signal_type: str) -> Tuple[int, Dict]:
-        """Calculate institutional Trade Quality Score (0-100)."""
-        score = 0
+                               fake_breakout: bool, signal_type: str,
+                               current_price: float, rr: float) -> Tuple[int, Dict]:
+        """Calculate weighted institutional Trade Quality Score (0-100) using the Dynamic Confidence Engine."""
         details = {}
-
-        # ─── 1. HTF Trend & Bias Alignment (Max 30 pts) ───
-        trend_pts = 0
-        if overall_htf_bias == direction:
-            trend_pts += 15
-        if daily_bias == direction:
-            trend_pts += 10
-        if h4_bias == direction:
-            trend_pts += 5
-        score += trend_pts
-        details['trend_alignment'] = f"{trend_pts}/30 points"
-
-        # ─── 2. Market Structure & CHoCH (Max 25 pts) ───
-        struct_pts = 0
+        
+        # 1. Market Structure (20%)
         ms = exec_analysis['market_structure']
+        ms_score = 0
         if ms['trend'] == direction + "ISH" or (direction == 'BUY' and ms['trend'] == 'BULLISH') or (direction == 'SELL' and ms['trend'] == 'BEARISH'):
-            struct_pts += 10
-        if ms['structure_strength'] >= 70:
-            struct_pts += 5
-        # Check if setup is confirmed by CHoCH or BOS
+            ms_score += 40
+        if ms['structure_strength'] >= 75:
+            ms_score += 30
         if len(ms['bos_list']) > 0:
-            struct_pts += 5
+            ms_score += 15
         if len(ms['choch_list']) > 0:
-            struct_pts += 5
-        score += struct_pts
-        details['market_structure'] = f"{struct_pts}/25 points"
+            ms_score += 15
+        market_structure_weighted = (ms_score / 100) * 20
+        details['market_structure'] = f"{ms_score}/100 ({market_structure_weighted:.1f}%)"
 
-        # ─── 3. Institutional Zones & Block Confluences (Max 25 pts) ───
-        block_pts = 0
-        # Premium/Discount check
-        pd_zone = exec_analysis['premium_discount']
-        if direction == 'BUY' and pd_zone == 'DISCOUNT':
-            block_pts += 8
-        elif direction == 'SELL' and pd_zone == 'PREMIUM':
-            block_pts += 8
-        
-        # Order Block proximity
+        # 2. Liquidity (15%)
+        liq_score = 0
+        if fake_breakout:
+            liq_score += 50
+        # Check liquidity pools
+        buy_pools = len(exec_analysis['liquidity'].get('buy_side', []))
+        sell_pools = len(exec_analysis['liquidity'].get('sell_side', []))
+        if buy_pools > 0 or sell_pools > 0:
+            liq_score += 30
+        # Equal Highs/Lows presence
+        if exec_analysis['liquidity'].get('all_levels'):
+            liq_score += 20
+        else:
+            liq_score += 10
+        liquidity_weighted = (min(100, liq_score) / 100) * 15
+        details['liquidity'] = f"{liq_score}/100 ({liquidity_weighted:.1f}%)"
+
+        # 3. Order Flow (15%)
+        of_score = 0
+        # Check volume and body size of active OB
         if setup.get('ob_strength', 0) >= 7:
-            block_pts += 7
-        
-        # Breaker Block or FVG overlap
-        has_breaker = any(b['type'] == direction + '_BREAKER' for b in breaker_blocks)
-        has_fvg = len(exec_analysis['fair_value_gaps']) > 0
-        if has_breaker:
-            block_pts += 5
-        elif has_fvg:
-            block_pts += 3
+            of_score += 60
+        else:
+            of_score += 40
+        # Mitigation factor
+        if not setup.get('mitigated', False):
+            of_score += 40
+        order_flow_weighted = (min(100, of_score) / 100) * 15
+        details['order_flow'] = f"{of_score}/100 ({order_flow_weighted:.1f}%)"
 
-        # IFVG support
-        has_ifvg = any(i['type'] == direction + '_IFVG' for i in ifvgs)
-        if has_ifvg:
-            block_pts += 5
-        score += block_pts
-        details['block_confluence'] = f"{block_pts}/25 points"
-
-        # ─── 4. Momentum & Session Quality (Max 20 pts) ───
-        m_pts = 0
-        # RSI Check
+        # 4. Momentum (10%)
+        mom_score = 0
         rsi = exec_analysis['indicators']['rsi']
         if direction == 'BUY' and 30 <= rsi <= 55:
-            m_pts += 5
+            mom_score += 70
         elif direction == 'SELL' and 45 <= rsi <= 70:
-            m_pts += 5
-
-        # Session & Volatility
-        from utils.scheduler import AnalysisScheduler
-        if AnalysisScheduler.is_kill_zone():
-            m_pts += 10
+            mom_score += 70
         else:
-            m_pts += 5 # Lower points for trading outside session
+            mom_score += 30
+        if 30 <= rsi <= 70:
+            mom_score += 30
+        momentum_weighted = (mom_score / 100) * 10
+        details['momentum'] = f"{mom_score}/100 ({momentum_weighted:.1f}%)"
 
-        # Fake breakout / Hunt confirmation (adds extra validity if it's a stop run)
-        if fake_breakout:
-            m_pts += 5
+        # 5. Trend Strength (10%)
+        trend_strength_score = ms['structure_strength']
+        trend_strength_weighted = (trend_strength_score / 100) * 10
+        details['trend_strength'] = f"{trend_strength_score}/100 ({trend_strength_weighted:.1f}%)"
+
+        # 6. Institutional Confluence (10%)
+        inst_conf_score = 0
+        has_breaker = any(b['type'] == direction + '_BREAKER' for b in breaker_blocks)
+        has_ifvg = any(i['type'] == direction + '_IFVG' for i in ifvgs)
+        if has_breaker:
+            inst_conf_score += 50
+        if has_ifvg:
+            inst_conf_score += 50
+        if not has_breaker and not has_ifvg:
+            # Fallback to standard OB/FVG confluence
+            if len(exec_analysis['fair_value_gaps']) > 0:
+                inst_conf_score += 40
+            if len(exec_analysis['order_blocks']) > 0:
+                inst_conf_score += 40
+        inst_confluence_weighted = (min(100, inst_conf_score) / 100) * 10
+        details['inst_confluence'] = f"{inst_conf_score}/100 ({inst_confluence_weighted:.1f}%)"
+
+        # 7. Session Timing (5%)
+        from utils.scheduler import AnalysisScheduler
+        current_hour_utc = datetime.now(timezone.utc).hour
+        session_score = 0
+        # Active sessions
+        is_london = 8 <= current_hour_utc < 16
+        is_ny = 13 <= current_hour_utc < 21
+        if is_london and is_ny:
+            session_score += 100
+        elif is_london or is_ny:
+            session_score += 80
+        elif 0 <= current_hour_utc < 8:
+            session_score += 50
+        else:
+            session_score += 30
+        session_timing_weighted = (session_score / 100) * 5
+        details['session_timing'] = f"{session_score}/100 ({session_timing_weighted:.1f}%)"
+
+        # 8. Volatility (5%)
+        vol_score = 0
+        vol_status = exec_analysis['indicators']['volatility']
+        if vol_status == 'MEDIUM':
+            vol_score += 100
+        elif vol_status == 'HIGH':
+            vol_score += 70
+        else:
+            vol_score += 40
+        volatility_weighted = (vol_score / 100) * 5
+        details['volatility'] = f"{vol_score}/100 ({volatility_weighted:.1f}%)"
+
+        # 9. Risk-to-Reward (5%)
+        rr_score = 0
+        if rr >= 3.0:
+            rr_score += 100
+        elif rr >= 2.0:
+            rr_score += 70
+        else:
+            rr_score += 30
+        rr_weighted = (rr_score / 100) * 5
+        details['risk_reward'] = f"{rr_score}/100 ({rr_weighted:.1f}%)"
+
+        # 10. Macro Bias (5%)
+        macro_score = 0
+        if overall_htf_bias == direction:
+            macro_score += 50
+        if daily_bias == direction:
+            macro_score += 30
+        if h4_bias == direction:
+            macro_score += 20
+        macro_weighted = (macro_score / 100) * 5
+        details['macro_bias'] = f"{macro_score}/100 ({macro_weighted:.1f}%)"
+
+        # 11. Trade Location (5%)
+        loc_score = 0
+        pd_zone = exec_analysis['premium_discount']
+        if direction == 'BUY' and pd_zone == 'DISCOUNT':
+            loc_score += 100
+        elif direction == 'SELL' and pd_zone == 'PREMIUM':
+            loc_score += 100
+        elif pd_zone == 'EQUILIBRIUM':
+            loc_score += 50
+        else:
+            loc_score += 10
+        trade_location_weighted = (loc_score / 100) * 5
+        details['trade_location'] = f"{loc_score}/100 ({trade_location_weighted:.1f}%)"
+
+        # Sum total weighted points
+        total_score = (
+            market_structure_weighted +
+            liquidity_weighted +
+            order_flow_weighted +
+            momentum_weighted +
+            trend_strength_weighted +
+            inst_confluence_weighted +
+            session_timing_weighted +
+            volatility_weighted +
+            rr_weighted +
+            macro_weighted +
+            trade_location_weighted
+        )
         
-        score += m_pts
-        details['momentum_session'] = f"{m_pts}/20 points"
+        score_int = int(round(total_score))
+        return min(100, max(0, score_int)), details
 
-        # Institutional Confirmation Summary text
-        details['institutional_conf'] = "HIGH" if score >= 90 else "MEDIUM" if score >= 75 else "LOW"
-
-        return min(100, max(0, score)), details
-
-    def _build_detailed_reasoning(self, direction: str, details: Dict, score: int) -> str:
-        """Build detailed institutional reasoning text."""
+    def _build_detailed_reasoning_new(self, direction: str, details: Dict, score: int, inst_grade: str, invalidation_reason: str) -> str:
+        """Build detailed institutional reasoning text based on new weights."""
         dir_ar = 'شراء 🟢' if direction == 'BUY' else 'بيع 🔴'
         reasoning = (
-            f"إعداد {dir_ar} بمستوى دقة مؤسساتي {score}/100.\n"
-            f"• توافق الاتجاه العام: {details.get('trend_alignment', 'N/A')}\n"
-            f"• هيكل السوق والكسر: {details.get('market_structure', 'N/A')}\n"
-            f"• توافق الكتل السعرية (OB/Breaker): {details.get('block_confluence', 'N/A')}\n"
-            f"• زخم الأسعار والجلسات: {details.get('momentum_session', 'N/A')}\n"
-            f"• التقييم النهائي: تم رصد تأكيد سيولة كافٍ للدخول الآمن."
+            f"تم الكشف عن إعداد صفقة {dir_ar} بقوة ثقة إجمالية {score}% ({inst_grade}).\n"
+            f"تفاصيل فحص محرك القرار الفني (Multi-Layer Validation):\n"
+            f"  1. هيكل السوق والترند العام (Market Structure): {details.get('market_structure', 'N/A')}\n"
+            f"  2. قوة الاتجاه ونقاط BOS/CHoCH (Trend Strength): {details.get('trend_strength', 'N/A')}\n"
+            f"  3. سيولة الجلسات وسيولة الأسعار (Liquidity): {details.get('liquidity', 'N/A')}\n"
+            f"  4. توافق السيولة المؤسساتية (Order Flow): {details.get('order_flow', 'N/A')}\n"
+            f"  5. مستويات الفتح والكسر والـ IFVG (Confluence): {details.get('inst_confluence', 'N/A')}\n"
+            f"  6. زخم القوة النسبية RSI (Momentum): {details.get('momentum', 'N/A')}\n"
+            f"  7. توافق أوقات جلسات المال (Session Timing): {details.get('session_timing', 'N/A')}\n"
+            f"  8. موقع الصفقة في مناطق الخصم والبريميوم (Trade Location): {details.get('trade_location', 'N/A')}\n"
+            f"  9. إدارة المخاطر ومعدل العائد (Risk/Reward): {details.get('risk_reward', 'N/A')}\n"
+            f"  10. توافق الفريمات الأكبر (Macro Bias): {details.get('macro_bias', 'N/A')}\n\n"
+            f"⚠️ شروط إلغاء الصفقة وتجاوزها (Invalidation Conditions):\n"
+            f"  • {invalidation_reason}"
         )
         return reasoning

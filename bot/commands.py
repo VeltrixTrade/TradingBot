@@ -79,7 +79,7 @@ class BotCommands:
                     await update.message.reply_text(msg)
             else:
                 await update.message.reply_text(
-                    '⚠️ *No Valid Trade Setup*\n\n'
+                    '⚠️ **NO HIGH-PROBABILITY TRADE AVAILABLE**\n\n'
                     'لم يتم العثور على إعداد صفقة يتطابق مع شروط الدقة المؤسساتية الصارمة (90/100) حالياً.\n'
                     'سيقوم النظام بالإرسال تلقائياً فور توفر الفرصة المناسبة في القناة 🔔',
                     parse_mode="Markdown"
@@ -321,7 +321,7 @@ class BotCommands:
                         await query.message.reply_text(msg)
                 else:
                     await query.message.reply_text(
-                        '⚠️ *No Valid Trade Setup*\n\n'
+                        '⚠️ **NO HIGH-PROBABILITY TRADE AVAILABLE**\n\n'
                         'لم يتم العثور على إعداد صفقة سكالب يتوافق مع معايير الدقة المؤسساتية (90/100) حالياً.\n'
                         'سيتم الإرسال تلقائياً فور توفرها.',
                         parse_mode="Markdown"
@@ -340,7 +340,7 @@ class BotCommands:
                         await query.message.reply_text(msg)
                 else:
                     await query.message.reply_text(
-                        '⚠️ *No Valid Trade Setup*\n\n'
+                        '⚠️ **NO HIGH-PROBABILITY TRADE AVAILABLE**\n\n'
                         'لم يتم العثور على إعداد صفقة سوينغ يتوافق مع معايير الدقة المؤسساتية (90/100) حالياً.\n'
                         'سيتم الإرسال تلقائياً فور توفرها.',
                         parse_mode="Markdown"
