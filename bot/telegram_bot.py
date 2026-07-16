@@ -119,9 +119,35 @@ class SignalEngine:
                         break
 
             if filtered:
+                # Prevent duplicates and prune active signals (keep only last 24 hours)
+                self.active_signals = [
+                    s for s in self.active_signals
+                    if (datetime.utcnow() - s.created_at.replace(tzinfo=None)).total_seconds() < 86400
+                ]
+
+                unique_signals = []
+                for sig in filtered:
+                    is_duplicate = False
+                    for active_sig in self.active_signals:
+                        price_diff = abs(sig.entry - active_sig.entry)
+                        time_diff = (datetime.utcnow() - active_sig.created_at.replace(tzinfo=None)).total_seconds()
+                        
+                        # Duplicate criteria: same direction, timeframe, close entry (within 2.0 dollars), and within last 2 hours
+                        if (sig.direction == active_sig.direction and 
+                            sig.timeframe == active_sig.timeframe and 
+                            price_diff < 2.0 and 
+                            time_diff < 7200):
+                            is_duplicate = True
+                            break
+                    if not is_duplicate:
+                        unique_signals.append(sig)
+
+                filtered = unique_signals
+
+            if filtered:
                 self.active_signals.extend(filtered)
                 self.total_signals += len(filtered)
-                logger.info(f'✅ {len(filtered)} {signal_type} signal(s) ready to send')
+                logger.info(f'✅ {len(filtered)} {signal_type} unique signal(s) ready to send')
 
             return filtered
 
@@ -206,12 +232,8 @@ class MustafaBot:
         self._analysis_running = True
 
         try:
-            # Check if in kill zone
-            if not AnalysisScheduler.is_kill_zone():
-                logger.debug('Outside kill zones, skipping analysis')
-                return
-
-            kill_zone = AnalysisScheduler.get_active_kill_zone()
+            # 24/7 Continuous scanning (bypass is_kill_zone)
+            kill_zone = AnalysisScheduler.get_active_kill_zone() or "None (Continuous Scan)"
             logger.info(f'⏰ Running scheduled analysis (Kill Zone: {kill_zone})')
 
             # Run scalp analysis
