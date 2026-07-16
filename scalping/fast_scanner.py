@@ -49,7 +49,7 @@ class FastMarketScanner:
         try:
             fetcher = self._get_fetcher(symbol_key)
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
-            data = fetcher.get_multi_timeframe_data(tf_list)
+            data = await fetcher.fetch_multi_timeframe_data_async(tf_list)
 
             if not data or timeframe not in data:
                 return []

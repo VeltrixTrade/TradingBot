@@ -314,8 +314,7 @@ class MustafaBot:
             kill_zone = AnalysisScheduler.get_active_kill_zone() or "None (Continuous Scan)"
             logger.info(f'⏰ Running scheduled analysis (Kill Zone: {kill_zone})')
 
-            # Run analysis for all supported symbols
-            for sym_key in Config.SUPPORTED_SYMBOLS.keys():
+            async def analyze_and_publish(sym_key):
                 # Run scalp analysis
                 scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key)
                 for signal in scalp_signals:
@@ -327,6 +326,10 @@ class MustafaBot:
                     swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key)
                     for signal in swing_signals:
                         await self.send_signal(signal)
+
+            symbols = list(Config.SUPPORTED_SYMBOLS.keys())
+            tasks = [analyze_and_publish(sym) for sym in symbols]
+            await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             logger.error(f'Scheduled analysis error: {e}', exc_info=True)
         finally:
