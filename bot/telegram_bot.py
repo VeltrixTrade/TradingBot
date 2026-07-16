@@ -156,7 +156,7 @@ class SignalEngine:
             return []
 
     async def get_market_analysis(self) -> str:
-        """Get formatted market analysis text."""
+        """Get formatted market analysis text with Multi-Timeframe Trend Dashboard."""
         try:
             data = self.price_fetcher.get_multi_timeframe_data(['15m', '1h', '4h'])
             if not data:
@@ -164,18 +164,57 @@ class SignalEngine:
 
             current_price = self.price_fetcher.get_current_price() or 0
 
-            # Analyze primary timeframe
+            # Perform MTF analysis
+            mtf_result = self.smc_engine.multi_timeframe_analysis(data)
+            analyses = mtf_result.get('analyses', {})
+
+            # Extract trends
+            tfs = {'15m': 'NEUTRAL', '1h': 'NEUTRAL', '4h': 'NEUTRAL'}
+            for tf_key in tfs.keys():
+                if tf_key in analyses:
+                    tfs[tf_key] = analyses[tf_key].get('overall_bias', 'NEUTRAL')
+
+            # Formulate icons
+            def get_trend_icon(t_val: str) -> str:
+                return 'صاعد 🟢' if t_val == 'BULLISH' else 'هابط 🔴' if t_val == 'BEARISH' else 'حيادي 🟡'
+
+            t15 = get_trend_icon(tfs['15m'])
+            t1h = get_trend_icon(tfs['1h'])
+            t4h = get_trend_icon(tfs['4h'])
+
+            # Harmony check
+            if tfs['15m'] == tfs['1h'] == tfs['4h'] == 'BULLISH':
+                harmony = "🟢 تناسق شرائي كامل (صعود موحد على كافة الفريمات)"
+            elif tfs['15m'] == tfs['1h'] == tfs['4h'] == 'BEARISH':
+                harmony = "🔴 تناسق بيعي كامل (هبوط موحد على كافة الفريمات)"
+            elif tfs['1h'] == tfs['4h'] != 'NEUTRAL':
+                harmony = f"🔄 اتجاه عام موحد ({get_trend_icon(tfs['1h'])})، فريم السكالب متذبذب"
+            else:
+                harmony = "⚠️ تعارض اتجاهي بين الفريمات (يُنصح بالتداول بحذر وانتظار الاستقرار)"
+
+            mtf_dashboard = f"""🌍 لوحة الاتجاهات متعددة الأطر (MTF Dashboard):
+  • 15m (إطار السكالب): {t15}
+  • 1h  (الإطار اليومي): {t1h}
+  • 4h  (إطار الاتجاه): {t4h}
+  • توافق الاتجاه: {harmony}
+━━━━━━━━━━━━━━━━━━━━"""
+
+            # Analyze primary timeframe for details (1h)
             primary_tf = '1h' if '1h' in data else list(data.keys())[0]
-            analysis = self.smc_engine.analyze(data[primary_tf], primary_tf)
+            primary_analysis = analyses.get(primary_tf, self.smc_engine.analyze(data[primary_tf], primary_tf))
+            primary_summary = primary_analysis.get('summary', 'لا يوجد تحليل مفصل')
+
+            # Prepend dashboard to the summary
+            summary_with_dashboard = f"{mtf_dashboard}\n\n{primary_summary}"
 
             return self.formatter.format_analysis(
-                analysis.get('summary', 'لا يوجد تحليل'),
+                summary_with_dashboard,
                 current_price,
-                analysis.get('overall_bias', 'NEUTRAL'),
+                primary_analysis.get('overall_bias', 'NEUTRAL'),
             )
 
         except Exception as e:
-            logger.error(f'Market analysis error: {e}')
+            logger.error(f'Market analysis error: {e}', exc_info=True)
             return f'❌ خطأ في التحليل: {str(e)[:100]}'
 
     async def get_prediction(self) -> str:

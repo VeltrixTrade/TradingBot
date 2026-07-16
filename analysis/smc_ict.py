@@ -463,40 +463,112 @@ class SMCICTEngine:
         }
 
     def generate_analysis_summary(self, analysis: Dict) -> str:
-        """Generate a human-readable summary in Arabic."""
+        """Generate a highly detailed and visually premium summary in Arabic."""
+        def make_progress_bar(percentage: int, total_chars: int = 10, fill_char: str = '🟩', empty_char: str = '⬜') -> str:
+            filled = int(round((percentage / 100) * total_chars))
+            filled = min(total_chars, max(0, filled))
+            return (fill_char * filled) + (empty_char * (total_chars - filled))
+
+        def make_rsi_bar(rsi_val: float) -> str:
+            idx = int(rsi_val / 10)
+            idx = min(9, max(0, idx))
+            bar = ['⬜'] * 10
+            for i in range(10):
+                if i == idx:
+                    bar[i] = '🔷'
+                elif i < 3:
+                    bar[i] = '🟥'
+                elif i >= 7:
+                    bar[i] = '🟥'
+                else:
+                    bar[i] = '🟩'
+            return "".join(bar)
+
+        def make_pd_bar(zone: str) -> str:
+            if zone == 'PREMIUM':
+                return '🔴 بريميوم (مناسب للبيع) [ 🟥 ⬤ | ⬜ | ⬜ ]'
+            elif zone == 'DISCOUNT':
+                return '🟢 ديسكاونت (مناسب للشراء) [ ⬜ | ⬜ | 🟩 ⬤ ]'
+            else:
+                return '🟡 منطقة التوازن (حيادي) [ ⬜ | 🟨 ⬤ | ⬜ ]'
+
+        # Sessions
+        from datetime import datetime, timezone
+        current_hour_utc = datetime.now(timezone.utc).hour
+        active_sessions = []
+        if 8 <= current_hour_utc < 16:
+            active_sessions.append("لندن 🇬🇧")
+        if 13 <= current_hour_utc < 21:
+            active_sessions.append("نيويورك 🇺🇸")
+        if 0 <= current_hour_utc < 8:
+            active_sessions.append("طوكيو/سيدني 🇯🇵")
+        session_text = " + ".join(active_sessions) if active_sessions else "فترة انتقالية هادئة 💤"
+
         trend_map = {'BULLISH': 'صاعد 📈', 'BEARISH': 'هابط 📉', 'NEUTRAL': 'محايد ↔️', 'RANGING': 'عرضي ↔️'}
-        pd_map = {'PREMIUM': 'منطقة بريميوم (بيع)', 'DISCOUNT': 'منطقة ديسكاونت (شراء)', 'EQUILIBRIUM': 'منطقة التوازن'}
-
         trend = trend_map.get(analysis['overall_bias'], 'محايد')
-        pd_zone = pd_map.get(analysis['premium_discount'], 'غير محدد')
+        
+        struct_strength = analysis['market_structure']['structure_strength']
+        struct_bar = make_progress_bar(struct_strength, 10, '🟩', '⬜')
+        
+        pd_zone = analysis['premium_discount']
+        pd_bar = make_pd_bar(pd_zone)
+        
+        rsi = analysis['indicators']['rsi']
+        rsi_bar = make_rsi_bar(rsi)
+        
+        score = analysis['score']
+        score_bar = make_progress_bar(score, 10, '🔥', '⬜')
 
-        # Triple EMA section
+        # Triple EMA
         triple_ema = analysis.get('triple_ema', {})
-        ema_desc = triple_ema.get('description', 'غير متوفر')
-        ema_vals = triple_ema.get('ema_values', {})
+        ema_trend = triple_ema.get('trend', 'NEUTRAL')
+        ema_trend_ar = 'صاعد 📈' if ema_trend == 'BULLISH' else 'هابط 📉' if ema_trend == 'BEARISH' else 'محايد ↔️'
+        ema_align = triple_ema.get('alignment', 'NONE')
+        
+        align_ar = 'غير محدد'
+        if ema_align == 'PERFECT_BULL':
+            align_ar = '🟢 ترتيب صاعد مثالي (السعر فوق المتوسطات)'
+        elif ema_align == 'PERFECT_BEAR':
+            align_ar = '🔴 ترتيب هابط مثالي (السعر تحت المتوسطات)'
+        elif ema_align == 'PARTIAL':
+            align_ar = '🟡 ترتيب جزئي غير مكتمل'
+        
+        initial = triple_ema.get('initial_signal')
+        confirmation = triple_ema.get('confirmation_signal')
+        
+        ema_signals = []
+        if initial:
+            ema_signals.append(initial['description_ar'])
+        if confirmation:
+            ema_signals.append(confirmation['description_ar'])
+        ema_signals_text = "\n    • ".join(ema_signals) if ema_signals else "لا توجد تقاطعات حديثة"
 
-        summary = f"""📊 تحليل الذهب | {analysis['timeframe']}
-
+        summary = f"""📊 تحليل هيكل السوق (SMC/ICT)
+━━━━━━━━━━━━━━━━━━━━
+⏰ الجلسة الحالية: {session_text}
 🔹 الاتجاه العام: {trend}
-🔹 قوة الهيكل: {analysis['market_structure']['structure_strength']}%
-🔹 المنطقة: {pd_zone}
-🔹 السعر الحالي: {analysis['current_price']:.2f}
+🔹 قوة الهيكل: {struct_strength}%
+  [{struct_bar}]
+🔹 المنطقة السعرية: {pd_bar}
+🔹 السعر الحالي للذهب: {analysis['current_price']:.2f}
 
-📐 المؤشرات:
-  • RSI: {analysis['indicators']['rsi']:.1f}
-  • ATR: {analysis['indicators']['atr']:.2f}
-  • EMA20: {analysis['indicators']['ema_20']:.2f}
-  • EMA50: {analysis['indicators']['ema_50']:.2f}
+📐 المؤشرات الفنية والسيولة:
+  • زخم RSI: {rsi:.1f}
+    [{rsi_bar}]
+  • معدل التذبذب ATR: {analysis['indicators']['atr']:.2f}
   • التقلب: {analysis['indicators']['volatility']}
+  • أوردر بلوكات نشطة: {len(analysis['order_blocks'])}
+  • فجوات قيمة عادلة FVG: {len(analysis['fair_value_gaps'])}
 
-{ema_desc}
+📈 استراتيجية Triple EMA (5, 20, 50):
+  • اتجاه المتوسطات: {ema_trend_ar}
+  • توافق الترتيب: {align_ar}
+  • حالة التقاطعات:
+    • {ema_signals_text}
 
-🏛️ أوردر بلوكات نشطة: {len(analysis['order_blocks'])}
-📊 فجوات قيمة عادلة: {len(analysis['fair_value_gaps'])}
-💧 مناطق سيولة: {len(analysis['liquidity'].get('buy_side', [])) + len(analysis['liquidity'].get('sell_side', []))}
-
-⚡ جودة الإعداد: {analysis['score']}/100
-🎯 إعدادات متاحة: {len(analysis['setups'])}"""
+⚡ جودة الصفقة الإجمالية: {score}/100
+  [{score_bar}]
+🎯 صفقات التداول المتاحة: {len(analysis['setups'])}"""
 
         return summary
 
