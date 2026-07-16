@@ -9,6 +9,13 @@ import sys
 
 def setup_logging(level: int = logging.INFO) -> None:
     """Configure logging for Mustafa Bot."""
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
     log_format = '%(asctime)s | %(name)-30s | %(levelname)-8s | %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
 

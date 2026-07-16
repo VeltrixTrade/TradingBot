@@ -151,15 +151,7 @@ class Config:
         """Validate that all required config values are set."""
         errors = []
         if not cls.TELEGRAM_TOKEN:
-            errors.append('TELEGRAM_BOT_TOKEN is required')
-        if not cls.CHAT_ID:
-            errors.append('TELEGRAM_CHAT_ID is required')
-        if not cls.DEEPSEEK_API_KEY:
-            errors.append('DEEPSEEK_API_KEY is required')
-        if not cls.GEMINI_API_KEY:
-            errors.append('GEMINI_API_KEY is required')
-        if not cls.OPENAI_API_KEY:
-            errors.append('OPENAI_API_KEY is required')
+            errors.append('TELEGRAM_BOT_TOKEN is required in .env file or environment variables')
         return errors
 
 

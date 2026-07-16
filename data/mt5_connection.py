@@ -129,10 +129,38 @@ class MT5ConnectionManager:
             return True
 
         except Exception as e:
-            logger.error(f"Direct MT5 connection error: {e}", exc_info=True)
-            self.is_initialized = False
-            self.diagnostics.update_data_feed_status("ERROR")
-            return False
+            logger.debug(f"Direct MT5 native connection check: {e}")
+
+        # Check MT5 FastAPI Bridge Client (For Railway Cloud execution connecting to local PC Bridge API)
+        try:
+            from data.mt5_bridge_client import MT5BridgeClient
+            client = MT5BridgeClient()
+            health = client.get_health()
+
+            if health and health.get('status') == 'ONLINE':
+                self.is_initialized = True
+                acc = client.get_account() or {}
+                self.active_account_info = {
+                    'login': acc.get('login', 'MT5 Bridge'),
+                    'server': acc.get('server', 'Bridge Server'),
+                    'company': acc.get('company', health.get('broker', 'FastAPI MT5 Bridge')),
+                    'balance': acc.get('balance', 0.0),
+                    'equity': acc.get('equity', 0.0),
+                    'leverage': acc.get('leverage', 500)
+                }
+                self.terminal_info = {
+                    'ping_last': int(health.get('ping_ms', 0) * 1000),
+                    'build': health.get('build', 4400)
+                }
+                self.diagnostics.update_data_feed_status(f"CONNECTED (FastAPI MT5 Bridge | {health.get('ping_ms')}ms)")
+                logger.info(f"✅ Connected to FastAPI MT5 Bridge API Server: Broker={health.get('broker')} | Ping={health.get('ping_ms')}ms")
+                return True
+        except Exception as ex:
+            logger.debug(f"MT5 Bridge Client check: {ex}")
+
+        self.is_initialized = False
+        self.diagnostics.update_data_feed_status("DISCONNECTED")
+        return False
 
     def discover_symbols(self) -> Dict[str, str]:
         """Auto-detect available broker symbols in connected MT5 terminal and map them to standard instrument keys."""
@@ -185,12 +213,13 @@ class MT5ConnectionManager:
         return symbol_key.replace('/', '')
 
     def get_symbol_info(self, symbol_key: str) -> Optional[Dict]:
-        """Fetch live Bid, Ask, Spread, Point, Digits and Contract Size directly from MT5 symbol_info."""
-        if not self.is_initialized or mt5 is None:
+        """Fetch live Bid, Ask, Spread, Point, Digits and Contract Size directly from MT5 symbol_info or Bridge Client."""
+        if not self.is_initialized:
             self.connect()
 
-        if not self.is_initialized or mt5 is None:
-            return None
+        if mt5 is None or not hasattr(mt5, 'symbol_info'):
+            from data.mt5_bridge_client import MT5BridgeClient
+            return MT5BridgeClient().get_symbol_info(symbol_key)
 
         broker_symbol = self.get_broker_symbol(symbol_key)
         info = mt5.symbol_info(broker_symbol)
@@ -200,7 +229,8 @@ class MT5ConnectionManager:
             info = mt5.symbol_info(broker_symbol)
 
         if info is None:
-            return None
+            from data.mt5_bridge_client import MT5BridgeClient
+            return MT5BridgeClient().get_symbol_info(symbol_key)
 
         bid = info.bid
         ask = info.ask
@@ -228,20 +258,21 @@ class MT5ConnectionManager:
         }
 
     def get_historical_rates(self, symbol_key: str, timeframe: str = '15m', n_bars: int = 500) -> Optional[pd.DataFrame]:
-        """Fetch historical candle rates directly from MT5 terminal."""
-        if not self.is_initialized or mt5 is None:
+        """Fetch historical candle rates directly from MT5 terminal or Bridge Client."""
+        if not self.is_initialized:
             self.connect()
 
-        if not self.is_initialized or mt5 is None:
-            return None
+        if mt5 is None or not hasattr(mt5, 'copy_rates_from_pos'):
+            from data.mt5_bridge_client import MT5BridgeClient
+            return MT5BridgeClient().get_candles(symbol_key, timeframe, n_bars)
 
         broker_symbol = self.get_broker_symbol(symbol_key)
         mt5_tf = self.tf_map.get(timeframe.lower(), mt5.TIMEFRAME_M15)
 
         rates = mt5.copy_rates_from_pos(broker_symbol, mt5_tf, 0, n_bars)
         if rates is None or len(rates) == 0:
-            logger.warning(f"MT5 terminal returned empty rates for {broker_symbol} ({timeframe})")
-            return None
+            from data.mt5_bridge_client import MT5BridgeClient
+            return MT5BridgeClient().get_candles(symbol_key, timeframe, n_bars)
 
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s')
