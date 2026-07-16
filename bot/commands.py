@@ -435,64 +435,70 @@ class BotCommands:
         await self.msg_manager.send_or_edit(bot, chat_id, msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _show_interactive_mt5_dashboard(self, chat_id: int, bot) -> None:
-        """Render MT5 Account Management Dashboard."""
-        acc = self.db.get_mt5_account(chat_id)
+        """Render Dedicated Pure Native MT5 Connection & Account Management Dashboard."""
+        acc_db = self.db.get_mt5_account(chat_id)
         
-        if not acc:
-            text = (
-                "🔗 *ربط حساب تداول MetaTrader 5 الخاص بك*\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "يمكنك ربط حساب تداول MT5 الخاص بك لاستخدام بيانات أسعار الوسيط المباشرة في التحليل الفني وتلقي الإشارات بدقة مطابقة لبرنامجك.\n\n"
-                "🔐 *الأمان المشفر*: يتم تشفير كلمة المرور بترميز AES وحفظها محلياً بأمان تام."
-            )
-            keyboard = [
-                [InlineKeyboardButton("🚀 بدء إعداد الحساب (Wizard)", callback_data="btn_start_mt5_wizard")],
-                [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]
+        # Verify active MT5 connection details
+        self.mt5_mgr.connect(chat_id=chat_id)
+        is_conn = self.mt5_mgr.is_initialized
+        acc_info = self.mt5_mgr.active_account_info
+        term_info = self.mt5_mgr.terminal_info
+
+        sym_key = self.user_symbols.get(chat_id, 'XAU/USD')
+        from data.price_fetcher import PriceFetcher
+        from data.price_calibrator import BrokerPriceCalibrator
+        calibrator = BrokerPriceCalibrator()
+
+        current_p = PriceFetcher(sym_key).get_current_price(chat_id=chat_id)
+        current_offset = calibrator.get_user_offset(chat_id, sym_key)
+
+        status_str = "متصل ومزامن بنجاح 🟢 (Pure Native MT5 API)" if is_conn else "غير متصل 🛑 (في انتظار الاتصال)"
+        ping_ms = round(term_info.get('ping_last', 0) / 1000.0, 1) if term_info else 0.0
+        build_ver = term_info.get('build', 'Build 4400+') if term_info else 'N/A'
+
+        login_val = acc_info.get('login') or (acc_db['login'] if acc_db else Config.MT5_LOGIN or 'N/A')
+        server_val = acc_info.get('server') or (acc_db['server'] if acc_db else Config.MT5_SERVER or 'N/A')
+        broker_val = acc_info.get('company') or (acc_db['broker_name'] if acc_db else 'MetaTrader 5 Broker')
+        balance_val = f"${acc_info.get('balance', 0.0):,.2f}" if acc_info else 'N/A'
+        equity_val = f"${acc_info.get('equity', 0.0):,.2f}" if acc_info else 'N/A'
+        leverage_val = f"1:{acc_info.get('leverage', 500)}" if acc_info else '1:500'
+
+        sym_count = len(self.mt5_mgr.broker_symbols) or 8
+
+        text = (
+            f"⚙️ *منصة وتفاصيل اتصال MetaTrader 5 المباشر (Pure MT5 API)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📡 حالة الاتصال: *{status_str}*\n"
+            f"⏱️ زمن الاستجابة (Ping Latency): *{ping_ms} ms*\n"
+            f"🛠️ إصدار المنصة (Build): *{build_ver}*\n\n"
+            f"🏦 اسم الوسيط (Broker): *{broker_val}*\n"
+            f"🌐 خادم الحساب (Server): *{server_val}*\n"
+            f"🔢 رقم الحساب (Login): `{login_val}`\n"
+            f"💰 رصيد الحساب (Balance): *{balance_val}*\n"
+            f"💵 الأسهم المتاحة (Equity): *{equity_val}*\n"
+            f"⚙️ الرافعة المالية (Leverage): *{leverage_val}*\n\n"
+            f"📈 الأصول المكتشفة بالمنصة: *{sym_count} أزواج وسلع*\n"
+            f"🟡 الرمز المفتوح الآن: *{sym_key}*\n"
+            f"💲 السعر المباشر الآن: `{current_p}` (الفارق: `{current_offset:+.2f}`)\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"اختر الخيار المطلوب أدناه:"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton("🔄 إعادة الاتصال والمزامنة", callback_data="btn_confirm_mt5_connect"),
+                InlineKeyboardButton("🎯 معايرة السعر", callback_data="btn_calibrate_price")
+            ],
+            [
+                InlineKeyboardButton("✏️ تغيير بيانات الحساب", callback_data="btn_start_mt5_wizard"),
+                InlineKeyboardButton("🔌 قطع الاتصال (Disconnect)", callback_data="btn_disconnect_mt5")
+            ],
+            [
+                InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
             ]
-        else:
-            login = acc['login']
-            server = acc['server']
-            broker = acc['broker_name']
-            masked_pwd = CryptoVault.mask_secret(acc['encrypted_password'])
+        ]
 
-            conn_status = "نشط ومتصل ✅" if self.mt5_mgr.is_initialized else "غير متصل ❌"
-            sym_count = len(self.mt5_mgr.broker_symbols)
-
-            sym_key = self.user_symbols.get(chat_id, 'XAU/USD')
-            from data.price_fetcher import PriceFetcher
-            from data.price_calibrator import BrokerPriceCalibrator
-            calibrator = BrokerPriceCalibrator()
-
-            current_p = PriceFetcher(sym_key).get_current_price(chat_id=chat_id)
-            current_offset = calibrator.get_user_offset(chat_id, sym_key)
-
-            text = (
-                f"⚙️ *إعدادات ولوحة تحكم حساب MetaTrader 5*:\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏦 الوسيط: *{broker}*\n"
-                f"🌐 الخادم: *{server}*\n"
-                f"🔢 رقم الحساب: `{login}`\n"
-                f"🔐 كلمة المرور: `{masked_pwd}` (مشفرة AES)\n"
-                f"📡 حالة الاتصال: *{conn_status}*\n"
-                f"📈 الرمز الحالي: *{sym_key}*\n"
-                f"💲 السعر المباشر الآن: `{current_p}` (الفارق: `{current_offset:+.2f}`)\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"اختر الخيار المطلوب أدناه:"
-            )
-
-            keyboard = [
-                [
-                    InlineKeyboardButton("🎯 معايرة أسعار الوسيط", callback_data="btn_calibrate_price"),
-                    InlineKeyboardButton("🔄 إعادة الاتصال", callback_data="btn_confirm_mt5_connect")
-                ],
-                [
-                    InlineKeyboardButton("✏️ تغيير الحساب", callback_data="btn_start_mt5_wizard"),
-                    InlineKeyboardButton("🗑️ إزالة الحساب", callback_data="btn_disconnect_mt5")
-                ],
-                [
-                    InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
-                ]
-            ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
 
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
 
