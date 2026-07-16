@@ -13,6 +13,10 @@ class MessageFormatter:
     @staticmethod
     def format_signal(signal: Signal) -> str:
         """Format a signal into a beautiful Telegram message."""
+        # Institutional report override
+        if signal.analysis_text and "تقرير الإشارة المؤسساتي" in signal.analysis_text:
+            return signal.analysis_text
+
         # Direction
         if signal.direction == Direction.BUY:
             dir_emoji = '🟢'
@@ -163,6 +167,76 @@ class MessageFormatter:
 ━━━━━━━━━━━━━━━━━━━━
 🤖 Mustafa Bot | SMC + ICT + AI"""
 
+        return msg
+
+    @staticmethod
+    def format_institutional_signal(setup: dict) -> str:
+        """Format an institutional gold trade setup into a highly structured report."""
+        dir_emoji = '🟢 BUY' if setup['direction'] == 'BUY' else '🔴 SELL'
+        
+        from datetime import datetime, timedelta
+        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
+
+        # Formulate status bars
+        def make_progress_bar(percentage: int, total_chars: int = 10, fill_char: str = '🔥', empty_char: str = '⬜') -> str:
+            filled = int(round((percentage / 100) * total_chars))
+            filled = min(total_chars, max(0, filled))
+            return (fill_char * filled) + (empty_char * (total_chars - filled))
+
+        score = setup['score']
+        score_bar = make_progress_bar(score, 10, '🔥', '⬜')
+
+        # Format Order Blocks list
+        ob_text = "\n".join([f"  • {ob}" for ob in setup['order_blocks']]) if setup['order_blocks'] else "  • No active OB found"
+        # Format Breaker Blocks
+        bb_text = "\n".join([f"  • {bb}" for bb in setup['breaker_blocks']]) if setup['breaker_blocks'] else "  • No active Breakers"
+        # Format FVGs
+        fvg_text = "\n".join([f"  • {fvg}" for fvg in setup['fvgs']]) if setup['fvgs'] else "  • No open FVG"
+
+        msg = f"""🏆 تقرير الإشارة المؤسساتي | GOLD REPORT
+━━━━━━━━━━━━━━━━━━━━
+⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة
+
+📈 إعداد الصفقة: {dir_emoji}
+💰 سعر الدخول المقترح: {setup['entry']:,.2f}
+🛑 وقف الخسارة (Stop Loss): {setup['stop_loss']:,.2f}
+🎯 الهدف الأول (TP1): {setup['tp1']:,.2f}
+🎯 الهدف الثاني (TP2): {setup['tp2']:,.2f}
+🎯 الهدف الثالث (TP3): {setup['tp3']:,.2f}
+⚖️ نسبة العائد للمخاطرة (R:R): 1:{setup['risk_reward']:.1f}
+
+📊 معطيات التحليل والهيكل:
+  • اتجاه السوق (Bias): {setup['market_bias']}
+  • الاتجاه الحالي (Trend): {setup['trend_direction']}
+  • هيكل السوق (Market Structure): {setup['structure_analysis']}
+  • تأكيد الكسر (BOS): {'مؤكد ✅' if setup['bos_confirmed'] else 'غير متوفر ❌'}
+  • تغير الشخصية (CHOCH): {'مؤكد ✅' if setup['choch_confirmed'] else 'غير متوفر ❌'}
+
+🏛️ الكتل السعرية والفجوات (SMC/ICT Zones):
+  • مناطق الأوردر بلوك (Order Blocks):
+{ob_text}
+  • كتل الاختراق (Breaker Blocks):
+{bb_text}
+  • فجوات القيمة العادلة (FVGs):
+{fvg_text}
+  • مستويات السيولة (Liquidity Pools):
+  • {setup['liquidity_zones']}
+  • المنطقة السعرية (Premium/Discount): {setup['premium_discount']}
+
+📐 تأكيدات الدخول والزخم:
+  • تأكيد السيولة المؤسساتية: {setup['institutional_confirmation']}
+  • فحص الزخم (Momentum): {setup['momentum_analysis']}
+  • جلسة التداول النشطة: {setup['session_analysis']}
+
+⚡ درجة جودة الصفقة (Quality Score): {score}/100
+  [{score_bar}]
+🧠 نسبة الثقة: {setup['confidence']}%
+
+📝 المنطق والتبرير الفني للدخول:
+{setup['reasoning']}
+━━━━━━━━━━━━━━━━━━━━
+⚠️ إخلاء مسؤولية: تداول الذهب محاط بمخاطر عالية. ليست نصيحة استثمارية.
+🤖 MUSTAFA BOT | INSTITUTIONAL GOLD ENGINE"""
         return msg
 
     @staticmethod

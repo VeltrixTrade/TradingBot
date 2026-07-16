@@ -79,12 +79,10 @@ class BotCommands:
                     await update.message.reply_text(msg)
             else:
                 await update.message.reply_text(
-                    '⚠️ لا توجد إشارات متاحة حالياً\n'
-                    'الأسباب المحتملة:\n'
-                    '• لم يتم العثور على إعدادات SMC قوية\n'
-                    '• لم يتفق نماذج AI على اتجاه واحد\n'
-                    '• الإشارات لم تجتز معايير الفلترة\n\n'
-                    'سيتم إرسال الإشارات تلقائياً عند توفرها 🔔'
+                    '⚠️ *No Valid Trade Setup*\n\n'
+                    'لم يتم العثور على إعداد صفقة يتطابق مع شروط الدقة المؤسساتية الصارمة (90/100) حالياً.\n'
+                    'سيقوم النظام بالإرسال تلقائياً فور توفر الفرصة المناسبة في القناة 🔔',
+                    parse_mode="Markdown"
                 )
 
         except Exception as e:
@@ -322,7 +320,12 @@ class BotCommands:
                         msg = self.formatter.format_signal(signal)
                         await query.message.reply_text(msg)
                 else:
-                    await query.message.reply_text("⚠️ لم يتم العثور على إشارة سكالب تتوافق مع شروط الفلترة وAI حالياً.\nسيتم الإرسال تلقائياً فور توفرها.")
+                    await query.message.reply_text(
+                        '⚠️ *No Valid Trade Setup*\n\n'
+                        'لم يتم العثور على إعداد صفقة سكالب يتوافق مع معايير الدقة المؤسساتية (90/100) حالياً.\n'
+                        'سيتم الإرسال تلقائياً فور توفرها.',
+                        parse_mode="Markdown"
+                    )
             except Exception as e:
                 logger.error(f"Callback Scalp error: {e}")
                 await query.message.reply_text("❌ حدث خطأ أثناء تحليل السكالب.")
@@ -336,7 +339,12 @@ class BotCommands:
                         msg = self.formatter.format_signal(signal)
                         await query.message.reply_text(msg)
                 else:
-                    await query.message.reply_text("⚠️ لم يتم العثور على إشارة سوينغ تتوافق مع شروط الفلترة وAI حالياً.\nسيتم الإرسال تلقائياً فور توفرها.")
+                    await query.message.reply_text(
+                        '⚠️ *No Valid Trade Setup*\n\n'
+                        'لم يتم العثور على إعداد صفقة سوينغ يتوافق مع معايير الدقة المؤسساتية (90/100) حالياً.\n'
+                        'سيتم الإرسال تلقائياً فور توفرها.',
+                        parse_mode="Markdown"
+                    )
             except Exception as e:
                 logger.error(f"Callback Swing error: {e}")
                 await query.message.reply_text("❌ حدث خطأ أثناء تحليل السوينغ.")

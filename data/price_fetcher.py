@@ -125,7 +125,9 @@ class PriceFetcher:
                 '30m': '30m',
                 '1h': '1h',
                 '4h': '4h',
-                '1d': '1d'
+                '1d': '1d',
+                '1w': '1w',
+                '1mo': '1M'
             }
 
             interval = interval_map.get(timeframe)
@@ -177,6 +179,8 @@ class PriceFetcher:
                 '1h': ('1h', '730d'),
                 '4h': ('1h', '730d'),  # Fetch 1h and resample
                 '1d': ('1d', '3y'),
+                '1w': ('1wk', '5y'),
+                '1mo': ('1mo', '10y'),
             }
 
             if timeframe not in tf_map:

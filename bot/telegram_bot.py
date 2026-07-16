@@ -15,6 +15,7 @@ from bot.commands import BotCommands
 from bot.formatters import MessageFormatter
 from data.price_fetcher import PriceFetcher
 from analysis.smc_ict import SMCICTEngine
+from analysis.gold_engine import GoldMarketAnalysisEngine
 from ai.ai_manager import AIManager
 from signals.signal_generator import SignalGenerator
 from signals.signal_filter import SignalFilter
@@ -32,6 +33,7 @@ class SignalEngine:
 
         self.price_fetcher = PriceFetcher(Config.SYMBOL, Config.EXCHANGE)
         self.smc_engine = SMCICTEngine()
+        self.gold_engine = GoldMarketAnalysisEngine()
         self.ai_manager = AIManager(
             Config.DEEPSEEK_API_KEY,
             Config.GEMINI_API_KEY,
@@ -52,74 +54,63 @@ class SignalEngine:
         logger.info('✅ Signal Engine initialized')
 
     async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False) -> List[Signal]:
-        """Run complete analysis pipeline."""
+        """Run complete institutional multi-timeframe analysis pipeline."""
         try:
-            logger.info(f'🔄 Starting {signal_type} analysis (Manual: {is_manual})...')
+            logger.info(f'🔄 Starting institutional {signal_type} analysis (Manual: {is_manual})...')
 
-            # 1. Fetch data
-            timeframes = Config.SCALP_TIMEFRAMES if signal_type == 'SCALP' else Config.SWING_TIMEFRAMES
-            # Always include higher TFs for context
-            all_tfs = list(set(timeframes + ['1h', '4h']))
+            # 1. Fetch all 8 required timeframes
+            tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
+            data = self.price_fetcher.get_multi_timeframe_data(tf_list)
 
-            data = self.price_fetcher.get_multi_timeframe_data(all_tfs)
-
-            if not data:
-                logger.warning('No price data available')
+            if not data or len(data) < len(tf_list):
+                logger.warning(f'Incomplete price data available. Got: {list(data.keys())}')
                 return []
 
-            current_price = self.price_fetcher.get_current_price()
-            if current_price is None:
-                logger.warning('Cannot get current price')
+            # 2. Run institutional analysis engine
+            report = self.gold_engine.analyze_market(data, signal_type)
+            setups = report.get('setups', [])
+
+            if not setups:
+                logger.info(f'No setups passing the 90/100 Trade Quality Score filter for {signal_type}')
                 return []
 
-            # 2. Multi-timeframe SMC/ICT analysis
-            mtf_analysis = self.smc_engine.multi_timeframe_analysis(data)
-            higher_tf_bias = mtf_analysis.get('higher_tf_bias', 'NEUTRAL')
+            # Convert setups to Signal models
+            from signals.models import Direction as ModelDirection, SignalType as ModelSignalType
+            import uuid
 
             filtered = []
-            
-            # Loop through timeframes to find the best setups across all periods
-            for tf in timeframes:
-                logger.info(f'Scanning timeframe {tf} for {signal_type} setups...')
-                if tf in mtf_analysis.get('analyses', {}):
-                    smc_analysis = mtf_analysis['analyses'][tf]
-                elif tf in data:
-                    smc_analysis = self.smc_engine.analyze(data[tf], tf)
-                else:
-                    continue
+            for setup in setups:
+                direction_val = ModelDirection.BUY if setup['direction'] == 'BUY' else ModelDirection.SELL
+                sig_type_val = ModelSignalType.SCALP if signal_type == 'SCALP' else ModelSignalType.SWING
+                exec_tf = '15m' if signal_type == 'SCALP' else '1h'
 
-                setups = smc_analysis.get('setups', [])
-                if not setups:
-                    logger.info(f'  No setups found on {tf}')
-                    continue
+                # Pre-format the institutional report
+                formatted_report = MessageFormatter.format_institutional_signal(setup)
 
-                # 3. AI consensus for this specific structure
-                market_data = {'current_price': current_price, 'timeframe': tf}
-                ai_consensus = await self.ai_manager.get_consensus_analysis(
-                    market_data, smc_analysis, signal_type
+                signal = Signal(
+                    id=str(uuid.uuid4())[:8],
+                    type=sig_type_val,
+                    direction=direction_val,
+                    entry=setup['entry'],
+                    stop_loss=setup['stop_loss'],
+                    take_profit_1=setup['tp1'],
+                    take_profit_2=setup['tp2'],
+                    take_profit_3=setup['tp3'],
+                    risk_reward=setup['risk_reward'],
+                    confidence=setup['score'],
+                    timeframe=exec_tf.upper(),
+                    smc_setup=setup['structure_analysis'],
+                    ai_consensus=setup['institutional_confirmation'],
+                    ai_agreement=3,
+                    analysis_text=formatted_report,
+                    prediction=setup['reasoning'],
+                    reversal_zones=[],
+                    status=SignalStatus.ACTIVE
                 )
+                filtered.append(signal)
 
-                # 4. Generate signals
-                signals = self.signal_generator.generate_signals(
-                    smc_analysis, ai_consensus, signal_type, tf.upper(), current_price, is_manual=is_manual
-                )
-
-                # 5. Filter signals
-                tf_filtered = self.signal_filter.filter_signals(
-                    signals,
-                    market_trend=higher_tf_bias,
-                    is_manual=is_manual,
-                )
-
-                if tf_filtered:
-                    logger.info(f'✅ Found {len(tf_filtered)} valid signal(s) on timeframe {tf}')
-                    filtered.extend(tf_filtered)
-                    if is_manual:
-                        # For manual requests, stop as soon as we find a valid setup to respond quickly
-                        break
-
+            # 3. Prevent duplicates and prune active signals (keep only last 24 hours)
             if filtered:
-                # Prevent duplicates and prune active signals (keep only last 24 hours)
                 self.active_signals = [
                     s for s in self.active_signals
                     if (datetime.utcnow() - s.created_at.replace(tzinfo=None)).total_seconds() < 86400
@@ -152,7 +143,7 @@ class SignalEngine:
             return filtered
 
         except Exception as e:
-            logger.error(f'Analysis pipeline error: {e}', exc_info=True)
+            logger.error(f'Institutional analysis pipeline error: {e}', exc_info=True)
             return []
 
     async def get_market_analysis(self) -> str:
