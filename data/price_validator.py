@@ -42,28 +42,24 @@ class MarketPriceValidator:
         return abs(price_delta) / max(0.000001, pip_mult)
 
     def fetch_tradingview_snapshot(self, symbol_key: str, timeframe: str = '15m') -> Dict:
-        """Fetch secondary comparison price snapshot representing TradingView data."""
+        """Fetch secondary live price snapshot directly from MetaTrader 5 Terminal."""
         try:
-            from data.price_fetcher import PriceFetcher
-            sym_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, {})
-            tv_symbol = sym_info.get('tradingview_symbol', 'XAUUSD')
-            
-            # Using price fetcher secondary snapshot logic
-            fetcher = PriceFetcher(symbol_key)
-            df = fetcher.get_historical_data(timeframe=timeframe, n_bars=10)
+            from data.mt5_connection import MT5ConnectionManager
+            mt5_mgr = MT5ConnectionManager()
+            info = mt5_mgr.get_symbol_info(symbol_key)
 
-            if df is not None and not df.empty:
-                last = df.iloc[-1]
+            if info is not None:
                 return {
                     'symbol': symbol_key,
-                    'tv_symbol': tv_symbol,
-                    'price': float(last['close']),
-                    'high': float(last['high']),
-                    'low': float(last['low']),
-                    'source': 'TradingView/YFinance Feed'
+                    'broker_symbol': info['broker_symbol'],
+                    'price': info['last'],
+                    'bid': info['bid'],
+                    'ask': info['ask'],
+                    'spread_pips': info['spread_pips'],
+                    'source': 'MetaTrader 5 Live Terminal'
                 }
         except Exception as e:
-            logger.error(f"Error fetching TradingView snapshot for {symbol_key}: {e}")
+            logger.error(f"Error fetching MT5 snapshot for {symbol_key}: {e}")
 
         return {'symbol': symbol_key, 'price': 0.0, 'source': 'UNAVAILABLE'}
 

@@ -19,6 +19,13 @@ class Config:
     TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '') or os.getenv('TELEGRAM_CHANNEL_ID', '')
 
+    # ── MetaTrader 5 (MT5) Configuration ──
+    MT5_LOGIN: int = int(os.getenv('MT5_LOGIN', 0)) if os.getenv('MT5_LOGIN', '').isdigit() else 0
+    MT5_PASSWORD: str = os.getenv('MT5_PASSWORD', '')
+    MT5_SERVER: str = os.getenv('MT5_SERVER', '')
+    MT5_PATH: str = os.getenv('MT5_PATH', '')
+    MT5_AUTO_CONNECT: bool = True
+
     # ── Dynamic Symbol Configuration ──
     SYMBOLS_FILE_PATH: str = os.path.join(os.path.dirname(__file__), 'symbols.json')
     SUPPORTED_SYMBOLS: dict = {}

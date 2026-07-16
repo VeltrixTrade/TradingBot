@@ -242,12 +242,14 @@ class MessageFormatter:
         # Format FVGs
         fvg_text = "\n".join([f"  • {fvg}" for fvg in setup['fvgs']]) if setup['fvgs'] else "  • No open FVG"
 
-        strategy_title = setup.get('strategy_name', '🏛️ Multi-Strategy Engine')
-        rank_score_str = f" | Rank: {setup['rank_score']}" if 'rank_score' in setup else ""
+        from data.mt5_connection import MT5ConnectionManager
+        mt5_info = MT5ConnectionManager().get_symbol_info(symbol)
+        mt5_bid_ask = f"Bid: {mt5_info['bid']:{price_fmt}} | Ask: {mt5_info['ask']:{price_fmt}} | Spread: {mt5_info['spread_pips']} pips" if mt5_info else "Live MT5 Stream Synchronized"
 
-        msg = f"""⚡ *إشارة سكالبينغ فورية* | {strategy_title}
+        msg = f"""⚡ *إشارة تداول فورية | MetaTrader 5 Live Data*
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة{rank_score_str}
+📡 المصدر: MetaTrader 5 Live Terminal
 
 Symbol: {symbol}
 Trade Type: {dir_emoji}
@@ -258,7 +260,8 @@ Take Profit 2: {tp2_str}
 Risk-to-Reward: 1:{setup['risk_reward']:.1f}
 Confidence Score: {score}/100
 Timeframe: {setup.get('timeframe_name', 'M15')}
-Data Validation: {setup.get('validation_info', 'TradingView Price Sync Verified ✅')}
+Live Ticks: {mt5_bid_ask}
+Strategy Module: {strategy_title}
 Reason for Entry: {setup['reasons_entry']}
 
 ━━━━━━━━━━━━━━━━━━━━
