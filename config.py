@@ -1,12 +1,15 @@
 """
 Mustafa Bot - Centralized Configuration
-يحمل جميع الإعدادات من متغيرات البيئة
+يحمل جميع الإعدادات من متغيرات البيئة وملف symbols.json
 """
 
 import os
+import json
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger('mustafa_bot.config')
 
 
 class Config:
@@ -16,50 +19,38 @@ class Config:
     TELEGRAM_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '') or os.getenv('TELEGRAM_CHANNEL_ID', '')
 
-    # ── Supported Instruments ──
-    SUPPORTED_SYMBOLS: dict = {
-        'XAU/USD': {
-            'display': '🟡 XAU/USD (Gold)',
-            'yfinance_symbol': 'GC=F',
-            'binance_symbol': 'PAXGUSDT',
-            'tradingview_symbol': 'XAUUSD',
-            'tradingview_exchange': 'OANDA',
-            'pip_multiplier': 0.1,
-            'default_spread': 0.3,
-            'decimal_places': 2
-        },
-        'EUR/USD': {
-            'display': '🔵 EUR/USD',
-            'yfinance_symbol': 'EURUSD=X',
-            'binance_symbol': 'EURUSDT',
-            'tradingview_symbol': 'EURUSD',
-            'tradingview_exchange': 'FX_IDC',
-            'pip_multiplier': 0.0001,
-            'default_spread': 0.00015,
-            'decimal_places': 5
-        },
-        'GBP/USD': {
-            'display': '🟢 GBP/USD',
-            'yfinance_symbol': 'GBPUSD=X',
-            'binance_symbol': 'GBPUSDT',
-            'tradingview_symbol': 'GBPUSD',
-            'tradingview_exchange': 'FX_IDC',
-            'pip_multiplier': 0.0001,
-            'default_spread': 0.0002,
-            'decimal_places': 5
-        },
-        'USD/JPY': {
-            'display': '🟣 USD/JPY',
-            'yfinance_symbol': 'USDJPY=X',
-            'binance_symbol': 'USDJPY',
-            'tradingview_symbol': 'USDJPY',
-            'tradingview_exchange': 'FX_IDC',
-            'pip_multiplier': 0.01,
-            'default_spread': 0.015,
-            'decimal_places': 3
-        }
-    }
+    # ── Dynamic Symbol Configuration ──
+    SYMBOLS_FILE_PATH: str = os.path.join(os.path.dirname(__file__), 'symbols.json')
+    SUPPORTED_SYMBOLS: dict = {}
 
+    @classmethod
+    def load_symbols(cls) -> dict:
+        """Load symbols dynamically from symbols.json."""
+        if os.path.exists(cls.SYMBOLS_FILE_PATH):
+            try:
+                with open(cls.SYMBOLS_FILE_PATH, 'r', encoding='utf-8') as f:
+                    cls.SUPPORTED_SYMBOLS = json.load(f)
+                    logger.info(f"Loaded {len(cls.SUPPORTED_SYMBOLS)} symbols from symbols.json")
+                    return cls.SUPPORTED_SYMBOLS
+            except Exception as e:
+                logger.error(f"Failed to load symbols.json: {e}")
+        
+        # Fallback default dict
+        cls.SUPPORTED_SYMBOLS = {
+            'XAU/USD': {
+                'symbol_id': 'XAU/USD',
+                'display': '🟡 XAU/USD (Gold)',
+                'category': 'COMMODITY',
+                'yfinance_symbol': 'GC=F',
+                'binance_symbol': 'PAXGUSDT',
+                'tradingview_symbol': 'XAUUSD',
+                'tradingview_exchange': 'OANDA',
+                'pip_multiplier': 0.1,
+                'default_spread': 0.3,
+                'decimal_places': 2
+            }
+        }
+        return cls.SUPPORTED_SYMBOLS
 
     # ── AI API Keys ──
     DEEPSEEK_API_KEY: str = os.getenv('DEEPSEEK_API_KEY', '')
@@ -71,11 +62,32 @@ class Config:
     GEMINI_MODEL: str = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
     OPENAI_MODEL: str = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 
-    # ── Trading ──
+    # ── Trading & Timeframes ──
     SYMBOL: str = 'XAUUSD'
     EXCHANGE: str = 'OANDA'
     SCALP_TIMEFRAMES: list = ['1m', '5m', '15m']
     SWING_TIMEFRAMES: list = ['30m', '1h', '4h']
+
+    # ── Dual Trading Profiles ──
+    TRADING_PROFILES: dict = {
+        'CONSERVATIVE': {
+            'name': '🛡️ المحافظ (Conservative)',
+            'min_score': 90,
+            'min_rr_scalp': 2.0,
+            'min_rr_swing': 3.0,
+            'max_risk_pct': 1.0,
+            'require_strict_htf': True
+        },
+        'AGGRESSIVE': {
+            'name': '⚡ الهجومي (Aggressive)',
+            'min_score': 75,
+            'min_rr_scalp': 1.5,
+            'min_rr_swing': 2.0,
+            'max_risk_pct': 2.0,
+            'require_strict_htf': False
+        }
+    }
+    DEFAULT_PROFILE: str = 'CONSERVATIVE'
 
     # ── Risk Management ──
     MIN_RISK_REWARD_SCALP: float = 2.0
@@ -113,3 +125,7 @@ class Config:
         if not cls.OPENAI_API_KEY:
             errors.append('OPENAI_API_KEY is required')
         return errors
+
+
+# Load symbols at startup
+Config.load_symbols()

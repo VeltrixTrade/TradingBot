@@ -1,14 +1,21 @@
 """
 Mustafa Bot - Telegram Bot Commands
-أوامر البوت التفاعلية الموحدة (Single-Message App Interface)
+أوامر البوت التفاعلية الموحدة بأسلوب التطبيق التفاعلي الموحد (Institutional Application Dashboard)
 """
 
 import logging
 import asyncio
+from typing import Optional, List, Dict
+from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+
 from bot.formatters import MessageFormatter
 from bot.message_manager import MessageManager
+from database.db_manager import DatabaseManager
+from analytics.performance import PerformanceAnalyticsEngine
+from backtest.engine import HistoricalBacktestEngine
+from utils.diagnostics import DiagnosticsManager
 from config import Config
 
 logger = logging.getLogger('mustafa_bot.bot.commands')
@@ -21,17 +28,46 @@ class BotCommands:
         self.signal_engine = signal_engine
         self.formatter = MessageFormatter()
         self.msg_manager = MessageManager()
-        self.user_states = {}             # maps user_id -> state string
-        self.user_symbols = {}            # maps user_id -> symbol_key
-        self.user_pending_actions = {}    # maps user_id -> (action_name, args, kwargs)
+        self.db = DatabaseManager()
+        self.analytics = PerformanceAnalyticsEngine(self.db)
+        self.backtester = HistoricalBacktestEngine()
+        self.diagnostics = DiagnosticsManager()
+
+        self.user_states = {}             # maps chat_id -> state string
+        self.user_symbols = {}            # maps chat_id -> symbol_key
+        self.user_profiles = {}           # maps chat_id -> profile_key ('CONSERVATIVE' or 'AGGRESSIVE')
+        self.user_pending_actions = {}    # maps chat_id -> (action_name, args, kwargs)
+
+    def _get_user_profile(self, chat_id: int) -> str:
+        return self.user_profiles.get(chat_id, Config.DEFAULT_PROFILE)
 
     async def get_main_menu(self, chat_id: int, bot) -> None:
-        """Render the app-like persistent main menu screen."""
-        welcome = self.formatter.format_welcome()
-        
-        # Display selected symbol in menu if exists
+        """Render the persistent dashboard main menu screen."""
         symbol_text = self.user_symbols.get(chat_id, "لم يتم التحديد 🌐")
-        welcome = f"🟢 *الرمز النشط الحالي*: `{symbol_text}`\n\n{welcome}"
+        profile_key = self._get_user_profile(chat_id)
+        profile_name = Config.TRADING_PROFILES[profile_key]['name']
+        active_trades_count = len(self.db.get_active_trades())
+
+        # Determine current active session
+        from utils.scheduler import AnalysisScheduler
+        current_hour_utc = datetime.now(timezone.utc).hour
+        active_sessions = []
+        if 8 <= current_hour_utc < 16: active_sessions.append("LONDON 🇬🇧")
+        if 13 <= current_hour_utc < 21: active_sessions.append("NEW YORK 🇺🇸")
+        if 0 <= current_hour_utc < 8: active_sessions.append("ASIAN 🇯🇵")
+        session_text = " + ".join(active_sessions) if active_sessions else "TRANSITION PERIOD 💤"
+
+        dashboard_header = self.formatter.format_dashboard_status(
+            symbol=symbol_text,
+            profile_name=profile_name,
+            active_trades_count=active_trades_count,
+            data_feed_status=self.diagnostics.data_feed_status,
+            last_analysis_time=self.diagnostics.last_analysis_time or "جاهز",
+            active_session=session_text
+        )
+
+        welcome = self.formatter.format_welcome()
+        full_text = f"{dashboard_header}\n\n{welcome}"
 
         keyboard = [
             [
@@ -40,44 +76,49 @@ class BotCommands:
             ],
             [
                 InlineKeyboardButton("🔮 توقع الأسعار", callback_data="btn_predict"),
-                InlineKeyboardButton("🔄 تغيير الرمز", callback_data="btn_change_symbol")
+                InlineKeyboardButton("📈 إحصائيات الأداء", callback_data="btn_performance")
             ],
             [
-                InlineKeyboardButton("⚙️ الحالة والإحصائيات", callback_data="btn_status"),
+                InlineKeyboardButton("🔄 تغيير الرمز", callback_data="btn_change_symbol"),
+                InlineKeyboardButton("⚙️ نمط التداول والمخاطرة", callback_data="btn_settings")
+            ],
+            [
+                InlineKeyboardButton("📋 سجل الصفقات", callback_data="btn_history"),
+                InlineKeyboardButton("🧪 اختبار تاريخي (Backtest)", callback_data="btn_backtest")
+            ],
+            [
+                InlineKeyboardButton("🛠️ تشخيص الخادم", callback_data="btn_diagnostics"),
                 InlineKeyboardButton("💬 التحدث مع AI", callback_data="btn_chat")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await self.msg_manager.send_or_edit(bot, chat_id, welcome, reply_markup)
+        await self.msg_manager.send_or_edit(bot, chat_id, full_text, reply_markup)
 
     async def check_user_symbol(self, chat_id: int, bot, action: str, *args, **kwargs) -> bool:
         """Verify if user has selected a symbol. If not, prompt with inline selector."""
         if chat_id in self.user_symbols:
             return True
 
-        # Save pending action to execute after selection
         self.user_pending_actions[chat_id] = (action, args, kwargs)
         
-        keyboard = [
-            [
-                InlineKeyboardButton("🟡 XAU/USD", callback_data="select_sym:XAU/USD"),
-                InlineKeyboardButton("🔵 EUR/USD", callback_data="select_sym:EUR/USD")
-            ],
-            [
-                InlineKeyboardButton("🟢 GBP/USD", callback_data="select_sym:GBP/USD"),
-                InlineKeyboardButton("🟣 USD/JPY", callback_data="select_sym:USD/JPY")
-            ],
-            [
-                InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
-            ]
-        ]
+        # Load all symbols dynamically from config
+        symbols_dict = Config.SUPPORTED_SYMBOLS
+        keyboard = []
+        row = []
+        for sym_key, sym_data in symbols_dict.items():
+            btn_display = sym_data.get('display', sym_key)
+            row.append(InlineKeyboardButton(btn_display, callback_data=f"select_sym:{sym_key}"))
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+
+        keyboard.append([InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         msg_text = (
-            "🌐 *يرجى اختيار رمز التداول المطلوب أولاً للبدء بالتحليل:*\n\n"
-            "• 🟡 XAU/USD (الذهب)\n"
-            "• 🔵 EUR/USD (اليورو/دولار)\n"
-            "• 🟢 GBP/USD (الباوند/دولار)\n"
-            "• 🟣 USD/JPY (الدولار/ين)"
+            "🌐 *يرجى اختيار رمز التداول المطلوب أولاً للبدء بالتحليل المؤسساتي:*\n\n"
+            "انقر على الزوج أو السلعة أو المؤشر من اللوائح التفاعلية أدناه:"
         )
         await self.msg_manager.send_or_edit(bot, chat_id, msg_text, reply_markup)
         return False
@@ -87,16 +128,14 @@ class BotCommands:
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         
-        # Keep chat clean: delete incoming user message
         await self.msg_manager.delete_user_message(context.bot, chat_id, update.message.message_id)
 
-        # Reset session
         self.user_states[user_id] = 'MAIN_MENU'
         self.user_symbols.pop(chat_id, None)
         self.user_pending_actions.pop(chat_id, None)
 
         await self.get_main_menu(chat_id, context.bot)
-        logger.info(f'User {user_id} started the bot interface')
+        self.diagnostics.log_event("BotCommands", "INFO", f"User {user_id} started session")
 
     async def symbol_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /symbol command."""
@@ -161,17 +200,15 @@ class BotCommands:
         await self.get_main_menu(chat_id, context.bot)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle plain text messages to route AI chat or delete inputs immediately to keep chat clean."""
+        """Handle incoming text messages to route AI chat or delete inputs immediately."""
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         text = update.message.text
         
-        # Delete user incoming message to keep the chat clean
         await self.msg_manager.delete_user_message(context.bot, chat_id, update.message.message_id)
 
         current_state = self.user_states.get(user_id, 'MAIN_MENU')
         if current_state == 'chat':
-            # Edit persistent message to show loading state
             await self.msg_manager.send_or_edit(
                 context.bot,
                 chat_id,
@@ -211,7 +248,6 @@ class BotCommands:
             symbol_key = data.split(":")[1]
             self.user_symbols[chat_id] = symbol_key
             
-            # Execute pending action if exists
             pending = self.user_pending_actions.pop(chat_id, None)
             if pending:
                 action, args, kwargs = pending
@@ -229,8 +265,15 @@ class BotCommands:
                 await self.get_main_menu(chat_id, context.bot)
             return
 
-        # 2. Main buttons routing
-        if data == "btn_home":
+        # 2. Settings Profile Toggle
+        elif data.startswith("set_profile:"):
+            profile_key = data.split(":")[1]
+            self.user_profiles[chat_id] = profile_key
+            await self._show_interactive_settings(chat_id, context.bot)
+            return
+
+        # 3. Main buttons routing
+        if data in ["btn_home", "btn_dashboard"]:
             self.user_states[user_id] = 'MAIN_MENU'
             await self.get_main_menu(chat_id, context.bot)
 
@@ -238,6 +281,7 @@ class BotCommands:
             if not await self.check_user_symbol(chat_id, context.bot, 'btn_signal'):
                 return
             symbol_key = self.user_symbols[chat_id]
+            profile_key = self._get_user_profile(chat_id)
             keyboard = [
                 [
                     InlineKeyboardButton("⚡ إشارة سكالب (Scalp)", callback_data="get_scalp"),
@@ -251,7 +295,7 @@ class BotCommands:
             await self.msg_manager.send_or_edit(
                 context.bot,
                 chat_id,
-                f"📥 *الرمز الحالي*: `{symbol_key}`\n\nاختر نوع إشارة التداول المطلوبة:",
+                f"📥 *الرمز الحالي*: `{symbol_key}` | النمط: `{profile_key}`\n\nاختر نوع إشارة التداول المطلوبة:",
                 reply_markup
             )
 
@@ -266,6 +310,25 @@ class BotCommands:
                 return
             symbol_key = self.user_symbols[chat_id]
             await self._run_interactive_prediction(chat_id, context.bot, symbol_key)
+
+        elif data == "btn_performance":
+            symbol_key = self.user_symbols.get(chat_id)
+            await self._show_interactive_performance(chat_id, context.bot, symbol_key)
+
+        elif data == "btn_history":
+            await self._show_interactive_history(chat_id, context.bot)
+
+        elif data == "btn_backtest":
+            if not await self.check_user_symbol(chat_id, context.bot, 'backtest'):
+                return
+            symbol_key = self.user_symbols[chat_id]
+            await self._run_interactive_backtest(chat_id, context.bot, symbol_key)
+
+        elif data == "btn_settings":
+            await self._show_interactive_settings(chat_id, context.bot)
+
+        elif data == "btn_diagnostics":
+            await self._show_interactive_diagnostics(chat_id, context.bot)
 
         elif data == "btn_change_symbol":
             self.user_symbols.pop(chat_id, None)
@@ -297,51 +360,75 @@ class BotCommands:
             await self._run_interactive_analysis(chat_id, context.bot, 'SWING', symbol_key)
 
     # ─────────────────────────────────────────────
-    # Animated Loading and Action Executives
+    # Interactive Screen Executives
     # ─────────────────────────────────────────────
 
     async def _run_interactive_analysis(self, chat_id: int, bot, signal_type: str, symbol_key: str) -> None:
         """Run step-by-step loading animation before displaying signal output."""
+        profile_key = self._get_user_profile(chat_id)
         loading_steps = [
-            "🔄 [1/6] Collecting live market data...",
+            f"🔄 [1/6] Scanning live feeds for {symbol_key}...",
             "🔄 [2/6] Detecting Market Structure (BOS/CHoCH)...",
-            "🔄 [3/6] Mapping Liquidity Pools & Sweeps...",
+            "🔄 [3/6] Mapping Liquidity Pools & Stop Sweeps...",
             "🔄 [4/6] Locating Order Blocks & Breakers...",
             "🔄 [5/6] Validating Smart Money & IFVG...",
-            "🔄 [6/6] Calculating Trade Quality Score..."
+            f"🔄 [6/6] Scoring setup against profile ({profile_key})..."
         ]
 
         for step in loading_steps:
             await self.msg_manager.send_or_edit(bot, chat_id, f"⚡ *{symbol_key} ({signal_type})*:\n\n{step}")
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.3)
+
+        self.diagnostics.update_last_analysis_time()
 
         try:
-            signals = await self.signal_engine.run_analysis(signal_type, is_manual=True, symbol_key=symbol_key)
+            signals = await self.signal_engine.run_analysis(signal_type, is_manual=True, symbol_key=symbol_key, profile=profile_key)
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             if signals:
                 for signal in signals:
                     msg = self.formatter.format_signal(signal)
+                    
+                    # Store signal trade into SQLite DB
+                    self.db.insert_trade({
+                        'id': signal.id,
+                        'symbol': symbol_key,
+                        'direction': signal.direction.value,
+                        'timeframe': signal.timeframe,
+                        'entry': signal.entry,
+                        'stop_loss': signal.stop_loss,
+                        'tp1': signal.take_profit_1,
+                        'tp2': signal.take_profit_2,
+                        'tp3': signal.take_profit_3,
+                        'confidence_score': signal.confidence,
+                        'risk_reward': signal.risk_reward,
+                        'status': 'WAITING_ENTRY',
+                        'analysis_report': msg
+                    })
+
                     await self.msg_manager.send_or_edit(bot, chat_id, msg, reply_markup)
             else:
+                profile_info = Config.TRADING_PROFILES[profile_key]
                 await self.msg_manager.send_or_edit(
                     bot,
                     chat_id,
                     f"⚠️ **No Trade Yet – Continue Monitoring**\n\n"
-                    f"لم يتم العثور على إعداد صفقة لـ {symbol_key} يتوافق مع معايير الدقة المؤسساتية (90/100) حالياً.\n"
+                    f"لم يتم العثور على إعداد صفقة لـ *{symbol_key}* يتوافق مع معايير نمط (*{profile_info['name']}*) "
+                    f"والتي تتطلب حد نقاط أدنى {profile_info['min_score']}/100 حالياً.\n"
                     f"سيقوم النظام بالإرسال تلقائياً فور توفر الفرصة المناسبة.",
                     reply_markup
                 )
         except Exception as e:
-            logger.error(f"Interactive analysis error: {e}")
+            logger.error(f"Interactive analysis error: {e}", exc_info=True)
+            self.diagnostics.log_event("Analysis", "ERROR", f"Analysis error for {symbol_key}: {e}")
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
             await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء إجراء التحليل.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _run_interactive_market_analysis(self, chat_id: int, bot, symbol_key: str) -> None:
         """Run loading animation and show market analysis dashboard."""
-        await self.msg_manager.send_or_edit(bot, chat_id, f"📊 *{symbol_key}*:\n\n🔄 Scanning market structure and indicators...")
-        await asyncio.sleep(0.5)
+        await self.msg_manager.send_or_edit(bot, chat_id, f"📊 *{symbol_key}*:\n\n🔄 Scanning multi-timeframe structure and indicators...")
+        await asyncio.sleep(0.4)
 
         try:
             analysis_msg = await self.signal_engine.get_market_analysis(symbol_key=symbol_key)
@@ -354,8 +441,8 @@ class BotCommands:
 
     async def _run_interactive_prediction(self, chat_id: int, bot, symbol_key: str) -> None:
         """Run prediction logic."""
-        await self.msg_manager.send_or_edit(bot, chat_id, f"🔮 *{symbol_key}*:\n\n🔄 Processing predictions via institutional models...")
-        await asyncio.sleep(0.5)
+        await self.msg_manager.send_or_edit(bot, chat_id, f"🔮 *{symbol_key}*:\n\n🔄 Processing predictions via institutional AI models...")
+        await asyncio.sleep(0.4)
 
         try:
             prediction_msg = await self.signal_engine.get_prediction(symbol_key=symbol_key)
@@ -365,6 +452,85 @@ class BotCommands:
             logger.error(f"Interactive prediction error: {e}")
             keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
             await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء حساب التوقعات.*", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_interactive_performance(self, chat_id: int, bot, symbol: Optional[str] = None) -> None:
+        """Show performance metrics page."""
+        try:
+            metrics = self.analytics.calculate_performance_summary(symbol=symbol)
+            summary_text = metrics['formatted_summary']
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, summary_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"Performance display error: {e}")
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, "❌ *خطأ في جلب تقرير الأداء.*", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_interactive_history(self, chat_id: int, bot) -> None:
+        """Show trade history page."""
+        try:
+            trades = self.db.get_all_trades(limit=15)
+            history_text = MessageFormatter.format_trade_history(trades)
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, history_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"History display error: {e}")
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, "❌ *خطأ في جلب سجل الصفقات.*", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _run_interactive_backtest(self, chat_id: int, bot, symbol_key: str) -> None:
+        """Run interactive historical backtest."""
+        profile_key = self._get_user_profile(chat_id)
+        await self.msg_manager.send_or_edit(bot, chat_id, f"🧪 *اختبار الاستراتيجية لـ {symbol_key}* ({profile_key})...\n\n🔄 Simulate candle slices & scoring validation...")
+        await asyncio.sleep(0.5)
+
+        try:
+            bt_res = self.backtester.run_backtest(symbol_key=symbol_key, signal_type='SCALP', n_bars=500, profile=profile_key)
+            report_text = bt_res.get('formatted_report', 'تعذر تنفيذ الاختبار')
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, report_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"Backtest execution error: {e}", exc_info=True)
+            keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء إجراء الاختبار التاريخي.*", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_interactive_settings(self, chat_id: int, bot) -> None:
+        """Show user settings and profile toggle options."""
+        current_profile = self._get_user_profile(chat_id)
+        cons_cfg = Config.TRADING_PROFILES['CONSERVATIVE']
+        agg_cfg = Config.TRADING_PROFILES['AGGRESSIVE']
+
+        text = (
+            f"⚙️ *إعدادات نمط التداول وشروط الفلترة*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"النمط المفعل حالياً: *{Config.TRADING_PROFILES[current_profile]['name']}*\n\n"
+            f"• 🛡️ *النمط المحافظ (Conservative)*:\n"
+            f"  - الحد الأدنى للتقييم: *{cons_cfg['min_score']}/100*\n"
+            f"  - أدنى نسبة عائد للسكالب/السوينغ: *1:{cons_cfg['min_rr_scalp']} / 1:{cons_cfg['min_rr_swing']}*\n"
+            f"  - يركز على الصفقات فائقة التأكيد والقليلة التكرار.\n\n"
+            f"• ⚡ *النمط الهجومي (Aggressive)*:\n"
+            f"  - الحد الأدنى للتقييم: *{agg_cfg['min_score']}/100*\n"
+            f"  - أدنى نسبة عائد للسكالب/السوينغ: *1:{agg_cfg['min_rr_scalp']} / 1:{agg_cfg['min_rr_swing']}*\n"
+            f"  - يوفر فرصاً أكثر مع الحفاظ على إدارة المخاطر.\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"اختر النمط المطلوب للبدء بالتطبيق الفوري:"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'CONSERVATIVE' else ''}🛡️ المحافظ (90+)", callback_data="set_profile:CONSERVATIVE"),
+                InlineKeyboardButton(f"{'✅ ' if current_profile == 'AGGRESSIVE' else ''}⚡ الهجومي (75+)", callback_data="set_profile:AGGRESSIVE")
+            ],
+            [
+                InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
+            ]
+        ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_interactive_diagnostics(self, chat_id: int, bot) -> None:
+        """Show diagnostics logs page."""
+        diag_report = self.diagnostics.get_system_health_report()
+        keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, diag_report, reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _show_interactive_status(self, chat_id: int, bot) -> None:
         """Show status page."""
@@ -398,16 +564,14 @@ class BotCommands:
 • 🔔 طلب إشارة فورية - اختيار إشارة سكالب أو سوينغ للرمز المختار
 • 📊 تحليل السوق - تحليل فني مفصل لهيكل السوق والـ Order Blocks
 • 🔮 توقع الأسعار - التوقعات السعرية ومناطق الارتداد
+• 📈 إحصائيات الأداء - تحليل كَمّي للشخصية والأرباح والـ Sharpe
 • 🔄 تغيير الرمز - تغيير الزوج/السلعة الحالية (/symbol)
-• ⚙️ الحالة والإحصائيات - إحصائيات البوت ونسبة النجاح
-• 💬 التحدث مع AI - محادثة تفاعلية مع مستشار التداول الخاص بك
-
-📝 ملاحظات:
-• يتم إرسال الإشارات تلقائياً لكافة الرموز المدعومة في القناة
-• للتراجع أو الخروج من أي وضع، أرسل /cancel
+• ⚙️ نمط التداول - التنقل بين النمط المحافظ (90+) والهجومي (75+)
+• 🧪 الاختبار التاريخي - فحص نتائج الاستراتيجية على البيانات التاريخية
+• 🛠️ تشخيص الخادم - مراقبة حالة جلب البيانات وصحة السيرفر
 
 ⚠️ تحذير: التداول ينطوي على مخاطر عالية
 ━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot v2.0"""
+🤖 Mustafa Bot v2.5"""
         keyboard = [[InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")]]
         await self.msg_manager.send_or_edit(bot, chat_id, help_text, reply_markup=InlineKeyboardMarkup(keyboard))

@@ -1,0 +1,98 @@
+{
+  "XAU/USD": {
+    "symbol_id": "XAU/USD",
+    "display": "🟡 XAU/USD (Gold)",
+    "category": "COMMODITY",
+    "yfinance_symbol": "GC=F",
+    "binance_symbol": "PAXGUSDT",
+    "tradingview_symbol": "XAUUSD",
+    "tradingview_exchange": "OANDA",
+    "pip_multiplier": 0.1,
+    "default_spread": 0.3,
+    "decimal_places": 2
+  },
+  "EUR/USD": {
+    "symbol_id": "EUR/USD",
+    "display": "🔵 EUR/USD",
+    "category": "FOREX",
+    "yfinance_symbol": "EURUSD=X",
+    "binance_symbol": "EURUSDT",
+    "tradingview_symbol": "EURUSD",
+    "tradingview_exchange": "FX_IDC",
+    "pip_multiplier": 0.0001,
+    "default_spread": 0.00015,
+    "decimal_places": 5
+  },
+  "GBP/USD": {
+    "symbol_id": "GBP/USD",
+    "display": "🟢 GBP/USD",
+    "category": "FOREX",
+    "yfinance_symbol": "GBPUSD=X",
+    "binance_symbol": "GBPUSDT",
+    "tradingview_symbol": "GBPUSD",
+    "tradingview_exchange": "FX_IDC",
+    "pip_multiplier": 0.0001,
+    "default_spread": 0.0002,
+    "decimal_places": 5
+  },
+  "USD/JPY": {
+    "symbol_id": "USD/JPY",
+    "display": "🟣 USD/JPY",
+    "category": "FOREX",
+    "yfinance_symbol": "USDJPY=X",
+    "binance_symbol": "USDJPY",
+    "tradingview_symbol": "USDJPY",
+    "tradingview_exchange": "FX_IDC",
+    "pip_multiplier": 0.01,
+    "default_spread": 0.015,
+    "decimal_places": 3
+  },
+  "NAS100": {
+    "symbol_id": "NAS100",
+    "display": "📈 NAS100 (Nasdaq)",
+    "category": "INDEX",
+    "yfinance_symbol": "^NDX",
+    "binance_symbol": "NAS100",
+    "tradingview_symbol": "NAS100USD",
+    "tradingview_exchange": "CAPITALCOM",
+    "pip_multiplier": 1.0,
+    "default_spread": 1.5,
+    "decimal_places": 2
+  },
+  "US30": {
+    "symbol_id": "US30",
+    "display": "🏛️ US30 (Dow Jones)",
+    "category": "INDEX",
+    "yfinance_symbol": "^DJI",
+    "binance_symbol": "US30",
+    "tradingview_symbol": "US30",
+    "tradingview_exchange": "CAPITALCOM",
+    "pip_multiplier": 1.0,
+    "default_spread": 2.0,
+    "decimal_places": 2
+  },
+  "BTC/USD": {
+    "symbol_id": "BTC/USD",
+    "display": "⚡ BTC/USD (Bitcoin)",
+    "category": "CRYPTO",
+    "yfinance_symbol": "BTC-USD",
+    "binance_symbol": "BTCUSDT",
+    "tradingview_symbol": "BTCUSD",
+    "tradingview_exchange": "BINANCE",
+    "pip_multiplier": 1.0,
+    "default_spread": 5.0,
+    "decimal_places": 2
+  },
+  "ETH/USD": {
+    "symbol_id": "ETH/USD",
+    "display": "💎 ETH/USD (Ethereum)",
+    "category": "CRYPTO",
+    "yfinance_symbol": "ETH-USD",
+    "binance_symbol": "ETHUSDT",
+    "tradingview_symbol": "ETHUSD",
+    "tradingview_exchange": "BINANCE",
+    "pip_multiplier": 0.1,
+    "default_spread": 0.5,
+    "decimal_places": 2
+  }
+}

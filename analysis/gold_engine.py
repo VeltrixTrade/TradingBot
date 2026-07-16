@@ -30,7 +30,7 @@ class GoldMarketAnalysisEngine:
         self.smc_engine = SMCICTEngine()
         self.triple_ema = TripleEMACrossover(fast=5, medium=20, slow=50)
 
-    def analyze_market(self, dataframes: Dict[str, pd.DataFrame], signal_type: str = 'SCALP', symbol_key: str = 'XAU/USD') -> Dict:
+    def analyze_market(self, dataframes: Dict[str, pd.DataFrame], signal_type: str = 'SCALP', symbol_key: str = 'XAU/USD', min_score: Optional[int] = None, profile: str = 'CONSERVATIVE') -> Dict:
         """Run complete institutional multi-timeframe analysis from Monthly to M5.
 
         Returns a detailed report dict with setups, scores, and explanations.
@@ -38,6 +38,9 @@ class GoldMarketAnalysisEngine:
         from config import Config
         symbol_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, Config.SUPPORTED_SYMBOLS['XAU/USD'])
         decimals = symbol_info.get('decimal_places', 2)
+
+        profile_cfg = Config.TRADING_PROFILES.get(profile, Config.TRADING_PROFILES['CONSERVATIVE'])
+        threshold = min_score if min_score is not None else profile_cfg['min_score']
 
         # Required timeframes order
         tf_order = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
@@ -144,9 +147,9 @@ class GoldMarketAnalysisEngine:
                 rr=rr
             )
 
-            # Filter: only allow trades with a score of 90/100 or higher
-            if score >= 90:
-                inst_grade = "Institutional Grade" if score >= 95 else "Strong"
+            # Filter: only allow trades meeting the configured dynamic score threshold
+            if score >= threshold:
+                inst_grade = "Institutional Grade" if score >= 95 else "Strong" if score >= 85 else "Moderate"
                 
                 # Active Session
                 from utils.scheduler import AnalysisScheduler

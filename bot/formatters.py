@@ -170,6 +170,44 @@ class MessageFormatter:
         return msg
 
     @staticmethod
+    def format_dashboard_status(
+        symbol: str,
+        profile_name: str,
+        active_trades_count: int,
+        data_feed_status: str,
+        last_analysis_time: str,
+        active_session: str
+    ) -> str:
+        """Format dashboard summary status text."""
+        msg = f"""🖥️ *لوحة التحكم الفورية (Real-Time Status Dashboard)*
+━━━━━━━━━━━━━━━━━━━━
+🌐 الرمز النشط: *{symbol}*
+🛡️ النمط المفعل: *{profile_name}*
+🎯 الصفقات الفعالة: *{active_trades_count} صفقات*
+📡 حالة تغذية الأسعار: *{data_feed_status}*
+⏰ وقت آخر فحص: *{last_analysis_time}*
+🏛️ جلسة التداول الحالية: *{active_session}*
+━━━━━━━━━━━━━━━━━━━━
+🤖 Mustafa Bot Institutional Platform v2.5"""
+        return msg
+
+    @staticmethod
+    def format_trade_history(trades: list) -> str:
+        """Format history list of past trades."""
+        if not trades:
+            return "📋 *سجل الصفقات*: لا توجد صفقات منفذة سابقة في السجل حالياً."
+
+        lines = ["📋 *سجل الصفقات السابقة الأخيرة*:\n━━━━━━━━━━━━━━━━━━━━"]
+        for t in trades[:10]:
+            dir_icon = '🟢 BUY' if t['direction'] == 'BUY' else '🔴 SELL'
+            status_icon = '✅ TP' if 'TP' in t['status'] else '🛑 SL' if t['status'] == 'SL_HIT' else '⏳ WAITING'
+            lines.append(
+                f"• *{t['symbol']}* ({t['timeframe']}) | {dir_icon} @ `{t['entry']}` ➔ Status: *{t['status']}* ({status_icon})"
+            )
+        lines.append("━━━━━━━━━━━━━━━━━━━━\n🤖 Mustafa Bot Persistence Log")
+        return "\n".join(lines)
+
+    @staticmethod
     def format_institutional_signal(setup: dict) -> str:
         """Format an institutional trade setup into a highly structured report."""
         dir_emoji = '🟢 BUY' if setup['direction'] == 'BUY' else '🔴 SELL'

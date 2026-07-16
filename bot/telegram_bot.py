@@ -59,10 +59,10 @@ class SignalEngine:
             self.price_fetchers[symbol_key] = PriceFetcher(symbol_key)
         return self.price_fetchers[symbol_key]
 
-    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False, symbol_key: str = 'XAU/USD') -> List[Signal]:
+    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False, symbol_key: str = 'XAU/USD', profile: str = 'CONSERVATIVE') -> List[Signal]:
         """Run complete institutional multi-timeframe analysis pipeline for a specific symbol."""
         try:
-            logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual})...')
+            logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual}, Profile: {profile})...')
 
             # 1. Fetch all 8 required timeframes
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
@@ -74,7 +74,7 @@ class SignalEngine:
                 return []
 
             # 2. Run institutional analysis engine
-            report = self.gold_engine.analyze_market(data, signal_type, symbol_key=symbol_key)
+            report = self.gold_engine.analyze_market(data, signal_type, symbol_key=symbol_key, profile=profile)
             setups = report.get('setups', [])
 
             if not setups:
@@ -246,9 +246,33 @@ class MustafaBot:
     def __init__(self):
         self.engine = SignalEngine()
         self.commands = BotCommands(self.engine)
+        from trade_management.lifecycle import TradeLifecycleEngine
+        self.lifecycle_engine = TradeLifecycleEngine()
+        self.lifecycle_engine.set_notification_callback(self.on_trade_lifecycle_update)
+        
         self.app: Optional[Application] = None
         self.chat_id = Config.CHAT_ID
         self._analysis_running = False
+
+    async def on_trade_lifecycle_update(self, trade: dict, old_status: str, new_status: str, price: float, notes: str) -> None:
+        """Broadcast trade lifecycle updates to public channel or active subscribers."""
+        try:
+            if self.app and self.chat_id:
+                dir_icon = '🟢 BUY' if trade['direction'] == 'BUY' else '🔴 SELL'
+                msg = (
+                    f"📢 *تحديث حالة الصفقة الفعالة* | `{trade['id']}`\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🌐 الرمز: *{trade['symbol']}* ({trade['timeframe']})\n"
+                    f"📈 النوع: {dir_icon} @ `{trade['entry']}`\n"
+                    f"🔄 التحديث: *{old_status}* ➔ *{new_status}*\n"
+                    f"💰 السعر الحالي: `{price:.4f}`\n"
+                    f"📝 البيان: {notes}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🤖 Mustafa Bot Trade Lifecycle Engine"
+                )
+                await self.app.bot.send_message(chat_id=self.chat_id, text=msg, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error sending trade lifecycle notification: {e}")
 
     async def send_signal(self, signal: Signal) -> None:
         """Send a signal to the configured chat."""
@@ -278,14 +302,14 @@ class MustafaBot:
             # Run analysis for all supported symbols
             for sym_key in Config.SUPPORTED_SYMBOLS.keys():
                 # Run scalp analysis
-                scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key)
+                scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key, lifecycle_engine=self.lifecycle_engine)
                 for signal in scalp_signals:
                     await self.send_signal(signal)
 
                 # Run swing analysis (less frequently)
                 current_minute = datetime.now(timezone.utc).minute
                 if current_minute < 5:  # Only at the top of each hour
-                    swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key)
+                    swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key, lifecycle_engine=self.lifecycle_engine)
                     for signal in swing_signals:
                         await self.send_signal(signal)
         except Exception as e:
@@ -301,11 +325,19 @@ class MustafaBot:
         self.scheduler.start()
         logger.info(f'⏰ Scheduler configured and started: every {Config.ANALYSIS_INTERVAL_SECONDS}s')
 
+        # Start trade lifecycle async background loop
+        asyncio.create_task(self.lifecycle_engine.start_worker_loop(15))
+        logger.info('⏰ Trade Lifecycle Worker loop task initialized')
+
     async def post_shutdown(self, application: Application) -> None:
         """Runs during bot shutdown."""
         if hasattr(self, 'scheduler') and self.scheduler:
             self.scheduler.stop()
             logger.info('⏰ Scheduler stopped')
+
+        if hasattr(self, 'lifecycle_engine') and self.lifecycle_engine:
+            self.lifecycle_engine.stop_worker_loop()
+            logger.info('⏰ Trade Lifecycle Worker stopped')
 
     def setup(self) -> None:
         """Setup the bot with all command handlers."""
