@@ -130,6 +130,20 @@ class DatabaseManager:
                 );
                 """)
 
+                # Rejected Signals Audit Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS rejected_signals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    risk_reward REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    details TEXT
+                );
+                """)
+
                 conn.commit()
                 logger.info("💾 Database schema initialized successfully")
         except Exception as e:
@@ -486,4 +500,33 @@ class DatabaseManager:
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching admin logs: {e}")
+            return []
+
+    # ── Rejected Signals Audit ──
+
+    def insert_rejected_signal(self, symbol: str, direction: str, score: int, risk_reward: float, reason: str, details: str = "") -> bool:
+        """Record a rejected setup with explicit rationale."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                cursor.execute("""
+                INSERT INTO rejected_signals (symbol, direction, score, risk_reward, reason, timestamp, details)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (symbol, direction, score, risk_reward, reason, now_str, details))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error saving rejected signal: {e}")
+            return False
+
+    def get_rejected_signals(self, limit: int = 50) -> List[Dict]:
+        """Fetch historical rejected signal records."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM rejected_signals ORDER BY timestamp DESC LIMIT ?", (limit,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching rejected signals: {e}")
             return []

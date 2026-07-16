@@ -132,15 +132,15 @@ class SignalFilter:
         return [s for s in signals if s.ai_agreement >= Config.MIN_AI_AGREEMENT]
 
     def _filter_by_risk_reward(self, signals: List[Signal]) -> List[Signal]:
-        """Keep signals meeting minimum risk/reward."""
+        """Keep signals meeting minimum risk/reward of 1:3."""
+        from database.db_manager import DatabaseManager
+        db_rr = DatabaseManager().get_setting('min_rr')
+        min_rr = float(db_rr) if db_rr is not None else 3.0
+
         result = []
         for s in signals:
-            if s.type == SignalType.SCALP:
-                if s.risk_reward >= Config.MIN_RISK_REWARD_SCALP:
-                    result.append(s)
-            else:  # SWING
-                if s.risk_reward >= Config.MIN_RISK_REWARD_SWING:
-                    result.append(s)
+            if s.risk_reward >= min_rr:
+                result.append(s)
 
         return result
 

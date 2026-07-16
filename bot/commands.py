@@ -454,6 +454,9 @@ class BotCommands:
         elif data == "admin_menu_logs":
             await self._show_admin_logs_panel(chat_id, context.bot)
 
+        elif data == "admin_menu_rejected":
+            await self._show_admin_rejected_signals(chat_id, context.bot)
+
         elif data == "admin_restart_services":
             self.diagnostics.update_data_feed_status("RESTARTED (TradingView Live OANDA)")
             self.db.log_admin_action(chat_id, "RESTART_SERVICES", "SUCCESS")
@@ -1258,7 +1261,31 @@ class BotCommands:
             f"⏱️ تغذية الأسعار: *CONNECTED (TradingView Live OANDA)*"
         )
         keyboard = [
-            [InlineKeyboardButton("🔄 Restart Services", callback_data="admin_restart_services")],
+            [
+                InlineKeyboardButton("🚫 Rejected Setups", callback_data="admin_menu_rejected"),
+                InlineKeyboardButton("🔄 Restart Services", callback_data="admin_restart_services")
+            ],
             [InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]
         ]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_rejected_signals(self, chat_id: int, bot) -> None:
+        """Render recent rejected trade setups audit log."""
+        rejected = self.db.get_rejected_signals(10)
+        lines = []
+        for r in rejected:
+            lines.append(
+                f"• *{r['symbol']}* ({r['direction']}) | Score: `{r['score']}` | RR: `1:{r['risk_reward']}`\n"
+                f"  Reason: `{r['reason']}`\n"
+                f"  _{r['details']}_"
+            )
+        
+        body = "\n\n".join(lines) if lines else "لا توجد أي إشارات مرفوضة حالياً."
+        text = (
+            f"🚫 *سجل الصفقات المرفوضة لمعايير الجودة (Rejected Signals Audit)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{body}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
