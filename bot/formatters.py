@@ -220,11 +220,11 @@ class MessageFormatter:
         decimals = 5 if ('EUR/USD' in symbol or 'GBP/USD' in symbol) else 3 if 'USD/JPY' in symbol else 2
         price_fmt = f",.{decimals}f"
         
-        entry_str = f"{setup['entry']:{price_fmt}}"
-        sl_str = f"{setup['stop_loss']:{price_fmt}}"
-        tp1_str = f"{setup['tp1']:{price_fmt}}"
-        tp2_str = f"{setup['tp2']:{price_fmt}}"
-        tp3_str = f"{setup['tp3']:{price_fmt}}"
+        entry_str = f"{setup.get('entry', 0.0):{price_fmt}}"
+        sl_str = f"{setup.get('stop_loss', 0.0):{price_fmt}}"
+        tp1_str = f"{setup.get('tp1', 0.0):{price_fmt}}"
+        tp2_str = f"{setup.get('tp2', 0.0):{price_fmt}}"
+        tp3_str = f"{setup.get('tp3', 0.0):{price_fmt}}"
 
         # Formulate status bars
         def make_progress_bar(percentage: int, total_chars: int = 10, fill_char: str = '🔥', empty_char: str = '⬜') -> str:
@@ -232,19 +232,22 @@ class MessageFormatter:
             filled = min(total_chars, max(0, filled))
             return (fill_char * filled) + (empty_char * (total_chars - filled))
 
-        score = setup['score']
+        score = setup.get('score', 80)
         score_bar = make_progress_bar(score, 10, '🔥', '⬜')
 
         # Format Order Blocks list
-        ob_text = "\n".join([f"  • {ob}" for ob in setup['order_blocks']]) if setup['order_blocks'] else "  • No active OB found"
+        ob_text = "\n".join([f"  • {ob}" for ob in setup.get('order_blocks', [])]) if setup.get('order_blocks') else "  • No active OB found"
         # Format Breaker Blocks
-        bb_text = "\n".join([f"  • {bb}" for bb in setup['breaker_blocks']]) if setup['breaker_blocks'] else "  • No active Breakers"
+        bb_text = "\n".join([f"  • {bb}" for bb in setup.get('breaker_blocks', [])]) if setup.get('breaker_blocks') else "  • No active Breakers"
         # Format FVGs
-        fvg_text = "\n".join([f"  • {fvg}" for fvg in setup['fvgs']]) if setup['fvgs'] else "  • No open FVG"
+        fvg_text = "\n".join([f"  • {fvg}" for fvg in setup.get('fvgs', [])]) if setup.get('fvgs') else "  • No open FVG"
 
         from data.mt5_connection import MT5ConnectionManager
         mt5_info = MT5ConnectionManager().get_symbol_info(symbol)
         mt5_bid_ask = f"Bid: {mt5_info['bid']:{price_fmt}} | Ask: {mt5_info['ask']:{price_fmt}} | Spread: {mt5_info['spread_pips']} pips" if mt5_info else "Live MT5 Stream Synchronized"
+
+        rank_score_str = f" | التقييم: {score}/100"
+        strategy_title = setup.get('strategy_name', 'SMC + ICT Institutional Strategy')
 
         msg = f"""⚡ *إشارة تداول فورية | MetaTrader 5 Live Data*
 ━━━━━━━━━━━━━━━━━━━━
@@ -257,20 +260,20 @@ Entry: {entry_str}
 Stop Loss: {sl_str}
 Take Profit 1: {tp1_str}
 Take Profit 2: {tp2_str}
-Risk-to-Reward: 1:{setup['risk_reward']:.1f}
+Risk-to-Reward: 1:{setup.get('risk_reward', 2.0):.1f}
 Confidence Score: {score}/100
 Timeframe: {setup.get('timeframe_name', 'M15')}
 Live Ticks: {mt5_bid_ask}
 Strategy Module: {strategy_title}
-Reason for Entry: {setup['reasons_entry']}
+Reason for Entry: {setup.get('reasons_entry', 'Structure alignment')}
 
 ━━━━━━━━━━━━━━━━━━━━
 📊 معطيات التحليل والهيكل:
-  • اتجاه السوق (Bias): {setup['market_bias']}
-  • الاتجاه الحالي (Trend): {setup['trend_direction']}
-  • هيكل السوق (Market Structure): {setup['structure_analysis']}
-  • تأكيد الكسر (BOS): {'مؤكد ✅' if setup['bos_confirmed'] else 'غير متوفر ❌'}
-  • تغير الشخصية (CHOCH): {'مؤكد ✅' if setup['choch_confirmed'] else 'غير متوفر ❌'}
+  • اتجاه السوق (Bias): {setup.get('market_bias', 'NEUTRAL')}
+  • الاتجاه الحالي (Trend): {setup.get('trend_direction', 'NEUTRAL')}
+  • هيكل السوق (Market Structure): {setup.get('structure_analysis', 'Balanced')}
+  • تأكيد الكسر (BOS): {'مؤكد ✅' if setup.get('bos_confirmed') else 'غير متوفر ❌'}
+  • تغير الشخصية (CHOCH): {'مؤكد ✅' if setup.get('choch_confirmed') else 'غير متوفر ❌'}
 
 🏛️ الكتل السعرية والفجوات (SMC/ICT Zones):
   • مناطق الأوردر بلوك (Order Blocks):
@@ -280,22 +283,22 @@ Reason for Entry: {setup['reasons_entry']}
   • فجوات القيمة العادلة (FVGs):
 {fvg_text}
   • مستويات السيولة (Liquidity Pools):
-  • {setup['liquidity_zones']}
-  • المنطقة السعرية (Premium/Discount): {setup['premium_discount']}
+  • {setup.get('liquidity_zones', 'No major liquidity pool swept')}
+  • المنطقة السعرية (Premium/Discount): {setup.get('premium_discount', 'Discount Zone')}
 
 📐 تأكيدات الدخول والزخم:
-  • تأكيد السيولة المؤسساتية: {setup['institutional_confirmation']}
-  • فحص الزخم (Momentum): {setup['momentum_analysis']}
-  • جلسة التداول النشطة: {setup['session_analysis']}
+  • تأكيد السيولة المؤسساتية: {setup.get('institutional_confirmation', 'Neutral')}
+  • فحص الزخم (Momentum): {setup.get('momentum_analysis', 'Neutral')}
+  • جلسة التداول النشطة: {setup.get('session_analysis', 'All Session')}
   • معدل التذبذب والسيولة: {setup.get('volatility_analysis', 'N/A')}
 
 ⚡ درجة جودة الصفقة (Quality Score): {score}/100
   [{score_bar}]
-🧠 نسبة الثقة: {setup['confidence']}%
+🧠 نسبة الثقة: {setup.get('confidence', 80)}%
 🛡️ مستوى إدارة المخاطر: {setup.get('risk_pct', '1.0%')}
 
 📝 المنطق والتبرير الفني للدخول:
-{setup['reasoning']}
+{setup.get('reasoning', 'Aligned with institutional order flow.')}
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ إخلاء مسؤولية: تداول العملات والمعادن محاط بمخاطر عالية. ليست نصيحة استثمارية.
 🤖 MUSTAFA BOT | MULTI-SYMBOL ENGINE"""

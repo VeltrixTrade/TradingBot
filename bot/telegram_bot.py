@@ -317,14 +317,14 @@ class MustafaBot:
             # Run analysis for all supported symbols
             for sym_key in Config.SUPPORTED_SYMBOLS.keys():
                 # Run scalp analysis
-                scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key, lifecycle_engine=self.lifecycle_engine)
+                scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key)
                 for signal in scalp_signals:
                     await self.send_signal(signal)
 
                 # Run swing analysis (less frequently)
                 current_minute = datetime.now(timezone.utc).minute
                 if current_minute < 5:  # Only at the top of each hour
-                    swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key, lifecycle_engine=self.lifecycle_engine)
+                    swing_signals = await self.engine.run_analysis('SWING', symbol_key=sym_key)
                     for signal in swing_signals:
                         await self.send_signal(signal)
         except Exception as e:

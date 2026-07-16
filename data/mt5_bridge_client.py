@@ -7,6 +7,7 @@ import os
 import logging
 import urllib.request
 import json
+import time
 from typing import Dict, Optional, List
 import pandas as pd
 from config import Config
@@ -28,14 +29,21 @@ class MT5BridgeClient:
                 'Authorization': f'Bearer {cls._instance.api_key}',
                 'User-Agent': 'MustafaBot-Railway-BridgeClient/1.0'
             }
+            cls._instance._last_health_check = 0.0
+            cls._instance._is_bridge_online = False
         return cls._instance
 
     def is_configured(self) -> bool:
         """Check if bridge URL is configured."""
         return bool(self.base_url)
 
-    def _request(self, endpoint: str, timeout: int = 5) -> Optional[Dict]:
+    def _request(self, endpoint: str, timeout: int = 2) -> Optional[Dict]:
         """Perform raw GET request to MT5 Bridge API."""
+        now = time.time()
+        # If the bridge was verified to be offline in the last 60 seconds, skip to avoid slow down
+        if endpoint != "/health" and not self._is_bridge_online and (now - self._last_health_check < 60):
+            return None
+
         url = f"{self.base_url}{endpoint}"
         try:
             req = urllib.request.Request(url, headers=self.headers)
@@ -44,11 +52,28 @@ class MT5BridgeClient:
                     return json.loads(resp.read().decode('utf-8'))
         except Exception as e:
             logger.debug(f"Bridge API request error for {endpoint}: {e}")
+            if endpoint == "/health":
+                self._is_bridge_online = False
+                self._last_health_check = now
         return None
 
     def get_health(self) -> Optional[Dict]:
-        """Query /health endpoint."""
-        return self._request("/health")
+        """Query /health endpoint with caching."""
+        now = time.time()
+        # Return cached status if verified recently to avoid timeout stacking
+        if now - self._last_health_check < 30:
+            if self._is_bridge_online:
+                return {'status': 'ONLINE', 'ping_ms': 50.0}
+            return None
+
+        res = self._request("/health", timeout=2)
+        self._last_health_check = now
+        if res and res.get('status') == 'ONLINE':
+            self._is_bridge_online = True
+            return res
+        else:
+            self._is_bridge_online = False
+            return None
 
     def get_symbol_info(self, symbol_key: str) -> Optional[Dict]:
         """Query /symbol/{symbol} endpoint."""
