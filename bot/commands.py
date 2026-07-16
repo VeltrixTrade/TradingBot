@@ -575,10 +575,10 @@ class BotCommands:
             login_str = acc_info.get('login', 'MT5 Live Feed')
 
             header = (
-                f"🤖 *تحليل الشارت والبيانات المباشرة عبر AI & MT5*\n"
+                f"🤖 *تحليل الشارت والبيانات المباشرة عبر AI & TradingView*\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📈 الرمز: *{symbol_key}* | الحساب: `{login_str}`\n"
-                f"💲 سعر MT5 المباشر: `{res.get('current_price')}`\n"
+                f"📈 الرمز: *{symbol_key}* | التغذية: `{login_str}`\n"
+                f"💲 سعر TradingView المباشر: `{res.get('current_price')}`\n"
                 f"📡 Bid: `{res.get('mt5_bid')}` | Ask: `{res.get('mt5_ask')}` | Spread: `{res.get('mt5_spread')}` pips\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
             )
