@@ -20,14 +20,14 @@ DIRECT_API_MAP = {
 }
 
 YFINANCE_MAP = {
-    'XAU/USD': 'GC=F',
-    'EUR/USD': 'EURUSD=X',
-    'GBP/USD': 'GBPUSD=X',
-    'USD/JPY': 'JPY=X',
-    'NAS100': 'NQ=F',
-    'US30': 'YM=F',
-    'BTC/USD': 'BTC-USD',
-    'ETH/USD': 'ETH-USD',
+    'XAU/USD': 'PAXG-USD',    # Spot Gold tracker (Pax Gold)
+    'EUR/USD': 'EURUSD=X',    # Spot Forex
+    'GBP/USD': 'GBPUSD=X',    # Spot Forex
+    'USD/JPY': 'USDJPY=X',    # Spot Forex
+    'NAS100': '^NDX',         # Spot Nasdaq 100 Index
+    'US30': '^DJI',           # Spot Dow Jones Index
+    'BTC/USD': 'BTC-USD',     # Spot Bitcoin
+    'ETH/USD': 'ETH-USD',     # Spot Ethereum
 }
 
 TWELVEDATA_SYMBOL_MAP = {
