@@ -258,6 +258,7 @@ Take Profit 2: {tp2_str}
 Risk-to-Reward: 1:{setup['risk_reward']:.1f}
 Confidence Score: {score}/100
 Timeframe: {setup.get('timeframe_name', 'M15')}
+Data Validation: {setup.get('validation_info', 'TradingView Price Sync Verified ✅')}
 Reason for Entry: {setup['reasons_entry']}
 
 ━━━━━━━━━━━━━━━━━━━━

@@ -112,6 +112,12 @@ class Config:
     TRADING_PROFILES: dict = SELECTIVITY_PROFILES
     DEFAULT_PROFILE: str = DEFAULT_SELECTIVITY
 
+    # ── TradingView Market Price Validation Settings ──
+    PRICE_VALIDATION_ENABLED: bool = True
+    MAX_DISCREPANCY_PIPS: float = 3.0       # Max allowed pips difference vs TradingView
+    MAX_CANDLE_STALE_SECONDS: int = 120    # Max allowed stale candle age in seconds
+    MAX_ALLOWED_SPREAD_PIPS: float = 10.0   # Max allowed spread pips
+
     # ── Risk Management ──
     MIN_RISK_REWARD_SCALP: float = 2.0
     MIN_RISK_REWARD_SWING: float = 3.0

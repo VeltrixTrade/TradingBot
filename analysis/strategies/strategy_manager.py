@@ -65,7 +65,18 @@ class ParallelStrategyManager:
         timeframe: str = '15m',
         selectivity_profile: str = 'BALANCED'
     ) -> List[Dict]:
-        """Evaluate all enabled scalping strategies simultaneously in parallel."""
+        """Evaluate all enabled scalping strategies simultaneously in parallel after passing Market Data Validation Gate."""
+        from data.price_validator import MarketPriceValidator
+        validator = MarketPriceValidator()
+
+        # Pre-Analysis Market Data Quality & Price Validation Gate
+        exec_df = dataframes.get(timeframe)
+        if exec_df is not None:
+            val_res = validator.validate_market_data(exec_df, symbol_key=symbol, timeframe=timeframe)
+            if not val_res.is_valid:
+                logger.warning(f"🛑 Scalping Pipeline Gate rejected setup generation for {symbol} ({timeframe}): {val_res.reason}")
+                return []
+
         prof_cfg = Config.SELECTIVITY_PROFILES.get(
             selectivity_profile,
             Config.SELECTIVITY_PROFILES[Config.DEFAULT_SELECTIVITY]
@@ -83,6 +94,7 @@ class ParallelStrategyManager:
         valid_setups = []
         for r in results:
             if isinstance(r, dict) and r is not None:
+                r['validation_info'] = f"TradingView Validated ✅ (Diff: {val_res.discrepancy_pips:.2f} pips | Spread: {val_res.spread_pips:.1f} pips)"
                 valid_setups.append(r)
 
         return valid_setups
