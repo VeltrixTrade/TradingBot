@@ -1,126 +1,108 @@
 """
 Mustafa Bot - Message Formatter
-تنسيق رسائل الإشارات بشكل احترافي مع إيموجي
+تنسيق رسائل الإشارات والتوصيات بشكل مبسط ونظيف
 """
 
 from signals.models import Signal, SignalType, Direction
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Dict, List
 
 
 class MessageFormatter:
-    """Formats signals into beautiful Telegram messages."""
+    """Formats signals into clean, clear Telegram messages."""
 
     @staticmethod
     def format_signal(signal: Signal) -> str:
-        """Format a signal into a beautiful Telegram message."""
-        # Institutional report override
-        if signal.analysis_text and "تقرير الإشارة المؤسساتي" in signal.analysis_text:
-            return signal.analysis_text
+        """Format a clean, ultra-focused signal message with symbol, order type, entry, SL, and TPs."""
+        sym = getattr(signal, 'symbol', 'XAU/USD')
+        decimals = 5 if ('EUR/USD' in sym or 'GBP/USD' in sym) else 3 if 'USD/JPY' in sym else 2
+        price_fmt = f",.{decimals}f"
 
-        # Direction
-        if signal.direction == Direction.BUY:
-            dir_emoji = '🟢'
-            dir_text = 'شراء'
-            sl_diff = signal.entry - signal.stop_loss
-            tp1_diff = signal.take_profit_1 - signal.entry
-            tp2_diff = signal.take_profit_2 - signal.entry
-            tp3_diff = signal.take_profit_3 - signal.entry
+        order_type_str = getattr(signal.order_type, 'value', str(signal.order_type)) if hasattr(signal, 'order_type') else ('BUY' if signal.direction == Direction.BUY else 'SELL')
+        if 'LIMIT' in order_type_str:
+            order_badge = f"📌 {order_type_str}"
+        elif 'STOP' in order_type_str:
+            order_badge = f"🎯 {order_type_str}"
         else:
-            dir_emoji = '🔴'
-            dir_text = 'بيع'
-            sl_diff = signal.stop_loss - signal.entry
-            tp1_diff = signal.entry - signal.take_profit_1
-            tp2_diff = signal.entry - signal.take_profit_2
-            tp3_diff = signal.entry - signal.take_profit_3
+            order_badge = f"⚡ {order_type_str}"
 
-        # Signal type
-        type_text = 'سكالب ⚡' if signal.type == SignalType.SCALP else 'سوينغ 🌊'
-
-        # Confidence stars
-        if signal.confidence >= 90:
-            conf_stars = '⭐⭐⭐⭐⭐'
-        elif signal.confidence >= 80:
-            conf_stars = '⭐⭐⭐⭐'
-        elif signal.confidence >= 70:
-            conf_stars = '⭐⭐⭐'
-        else:
-            conf_stars = '⭐⭐'
-
-        # Reversal zones
-        zones_text = ' | '.join([f'{z:.2f}' for z in signal.reversal_zones[:5]]) if signal.reversal_zones else 'غير متاح'
-
-        from datetime import datetime, timedelta
-        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
-
-        msg = f"""🔔 إشارة ذهب جديدة | MUSTAFA BOT
+        msg = f"""🌐 *{sym}*
 ━━━━━━━━━━━━━━━━━━━━
-⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
-📊 النوع: {type_text} | {dir_text} {dir_emoji}
-⏰ الإطار الزمني: {signal.timeframe}
-━━━━━━━━━━━━━━━━━━━━
-💰 سعر الدخول: {signal.entry:,.2f}
-🛑 وقف الخسارة: {signal.stop_loss:,.2f} ({sl_diff:+.2f}$)
-🎯 الهدف 1: {signal.take_profit_1:,.2f} ({tp1_diff:+.2f}$)
-🎯 الهدف 2: {signal.take_profit_2:,.2f} ({tp2_diff:+.2f}$)
-🎯 الهدف 3: {signal.take_profit_3:,.2f} ({tp3_diff:+.2f}$)
-━━━━━━━━━━━━━━━━━━━━
-📈 المخاطرة/العائد: 1:{signal.risk_reward:.1f}
-🤖 ثقة AI: {signal.confidence}% ({signal.ai_agreement}/3 إجماع)
-{conf_stars}
-🏛️ إعداد SMC: {signal.smc_setup}
-━━━━━━━━━━━━━━━━━━━━
-📝 التحليل:
-{signal.analysis_text[:400]}
-
-🔮 التوقع: {signal.prediction[:200] if signal.prediction else 'غير متاح'}
-📍 مناطق الارتداد: {zones_text}
-━━━━━━━━━━━━━━━━━━━━
-⚠️ إخلاء مسؤولية: ليست نصيحة مالية
-🤖 Mustafa Bot | SMC + ICT + AI"""
+📈 *نوع الأمر*: `{order_badge}`
+💰 *منطقة الدخول*: `{signal.entry:{price_fmt}}`
+🛑 *وقف الخسارة*: `{signal.stop_loss:{price_fmt}}`
+🎯 *الهدف الأول*: `{signal.take_profit_1:{price_fmt}}`
+🎯 *الهدف الثاني*: `{signal.take_profit_2:{price_fmt}}`
+🎯 *الهدف الثالث*: `{signal.take_profit_3:{price_fmt}}`"""
 
         return msg
 
     @staticmethod
-    def format_analysis(analysis_text: str, current_price: float,
-                          trend: str) -> str:
+    def format_institutional_signal(setup: dict) -> str:
+        """Format a clean, ultra-focused signal message with symbol, order type, entry, SL, and TPs."""
+        symbol = setup.get('symbol', 'XAU/USD')
+        decimals = 5 if ('EUR/USD' in symbol or 'GBP/USD' in symbol) else 3 if 'USD/JPY' in symbol else 2
+        price_fmt = f",.{decimals}f"
+        
+        entry_str = f"{setup.get('entry', 0.0):{price_fmt}}"
+        sl_str = f"{setup.get('stop_loss', 0.0):{price_fmt}}"
+        tp1_str = f"{setup.get('tp1', 0.0):{price_fmt}}"
+        tp2_str = f"{setup.get('tp2', 0.0):{price_fmt}}"
+        tp3_str = f"{setup.get('tp3', 0.0):{price_fmt}}"
+
+        order_type_str = setup.get('order_type_str', 'MARKET_BUY' if setup.get('direction') == 'BUY' else 'MARKET_SELL')
+        if 'LIMIT' in order_type_str:
+            order_badge = f"📌 {order_type_str}"
+        elif 'STOP' in order_type_str:
+            order_badge = f"🎯 {order_type_str}"
+        else:
+            order_badge = f"⚡ {order_type_str}"
+
+        msg = f"""🌐 *{symbol}*
+━━━━━━━━━━━━━━━━━━━━
+📈 *نوع الأمر*: `{order_badge}`
+💰 *منطقة الدخول*: `{entry_str}`
+🛑 *وقف الخسارة*: `{sl_str}`
+🎯 *الهدف الأول*: `{tp1_str}`
+🎯 *الهدف الثاني*: `{tp2_str}`
+🎯 *الهدف الثالث*: `{tp3_str}`"""
+
+        return msg
+
+    @staticmethod
+    def format_analysis(analysis_text: str, current_price: float, trend: str) -> str:
         """Format a market analysis message."""
         trend_map = {'BULLISH': 'صاعد 📈', 'BEARISH': 'هابط 📉', 'NEUTRAL': 'محايد ↔️'}
         trend_text = trend_map.get(trend, 'محايد ↔️')
-
-        from datetime import datetime, timedelta
         mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
 
-        msg = f"""📊 تحليل سوق الذهب | MUSTAFA BOT
+        msg = f"""📊 *تحليل السوق | MUSTAFA BOT*
 ━━━━━━━━━━━━━━━━━━━━
-💰 السعر الحالي: {current_price:,.2f}
-⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
+💰 السعر الحالي: `{current_price:,.2f}`
+⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة
 📈 الاتجاه: {trend_text}
 ━━━━━━━━━━━━━━━━━━━━
 {analysis_text}
 ━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot | تحليل SMC + ICT + AI"""
-
+🤖 Mustafa Bot | SMC + ICT"""
         return msg
 
     @staticmethod
     def format_prediction(prediction: str, reversal_zones: list) -> str:
         """Format a price prediction message."""
         zones_text = '\n'.join([f'  📍 {z:,.2f}' for z in reversal_zones[:5]]) if reversal_zones else '  غير متاح'
-
-        from datetime import datetime, timedelta
         mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
 
-        msg = f"""🔮 توقعات الذهب | MUSTAFA BOT
+        msg = f"""🔮 *توقعات التداول | MUSTAFA BOT*
 ━━━━━━━━━━━━━━━━━━━━
-⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة المكرمة
+⏰ التاريخ والوقت: {mecca_time} بتوقيت مكة
 ━━━━━━━━━━━━━━━━━━━━
 {prediction if prediction else 'لا يوجد توقع متاح حالياً'}
 ━━━━━━━━━━━━━━━━━━━━
 📍 مناطق الارتداد القوية:
 {zones_text}
 ━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot | توقعات AI"""
-
+🤖 Mustafa Bot"""
         return msg
 
     @staticmethod
@@ -132,65 +114,36 @@ class MessageFormatter:
             return db_msg
 
         msg = """━━━━━━━━━━━━━━━━━━━━
-💎 بوت إشارات الذهب بالذكاء الاصطناعي
+💎 بوت التداول والتحليل المؤسساتي (SMC + ICT)
 
-⚙️ التقنيات المستخدمة:
-  🏛️ استراتيجية SMC + ICT
-  🧠 3 نماذج AI: DeepSeek + Gemini + ChatGPT
-  📊 بيانات حية من TradingView
-  🔍 فلترة 5 مراحل للإشارات
-
-📥 يرجى استخدام الأزرار التفاعلية بالأسفل للتحكم بالبوت وطلب التحليلات والتوقعات.
-
-🔔 يتم إرسال الإشارات تلقائياً خلال ساعات التداول النشطة (Kill Zones).
+📥 استخدم الأزرار بالأسفل لاستعراض التوصيات والتحليلات الفورية.
 ━━━━━━━━━━━━━━━━━━━━"""
-
         return msg
 
-
     @staticmethod
-    def format_status(active_signals: int, total_signals: int,
-                       win_rate: float, last_update: str) -> str:
+    def format_status(active_signals: int, total_signals: int, win_rate: float, last_update: str) -> str:
         """Format bot status message."""
-        msg = f"""📊 حالة Mustafa Bot
+        msg = f"""📊 *حالة البوت والأداء*
 ━━━━━━━━━━━━━━━━━━━━
-✅ الحالة: نشط ومتصل
+✅ الحالة: نشط ومتصل 🟢
 📡 آخر تحديث: {last_update}
-
-📈 الإحصائيات:
-  🔹 إشارات نشطة: {active_signals}
-  🔹 إجمالي الإشارات: {total_signals}
-  🔹 نسبة النجاح: {win_rate:.1f}%
-
-⚙️ النظام:
-  🧠 AI: DeepSeek ✅ | Gemini ✅ | ChatGPT ✅
-  📊 البيانات: TradingView ✅
-  🔍 الفلتر: 5 مراحل ✅
+📈 إشارات نشطة: {active_signals} | إجمالي الإشارات: {total_signals}
+🏆 نسبة النجاح: {win_rate:.1f}%
 ━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot | SMC + ICT + AI"""
-
+🤖 Mustafa Bot Institutional Engine"""
         return msg
 
     @staticmethod
-    def format_dashboard_status(
-        symbol: str,
-        profile_name: str,
-        active_trades_count: int,
-        data_feed_status: str,
-        last_analysis_time: str,
-        active_session: str
-    ) -> str:
+    def format_dashboard_status(symbol: str, profile_name: str, active_trades_count: int, data_feed_status: str, last_analysis_time: str, active_session: str) -> str:
         """Format dashboard summary status text."""
-        msg = f"""🖥️ *لوحة التحكم الفورية (Real-Time Status Dashboard)*
+        msg = f"""🖥️ *لوحة التحكم الفورية*
 ━━━━━━━━━━━━━━━━━━━━
 🌐 الرمز النشط: *{symbol}*
-🛡️ النمط المفعل: *{profile_name}*
 🎯 الصفقات الفعالة: *{active_trades_count} صفقات*
-📡 حالة تغذية الأسعار: *{data_feed_status}*
-⏰ وقت آخر فحص: *{last_analysis_time}*
-🏛️ جلسة التداول الحالية: *{active_session}*
-━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot Institutional Platform v2.5"""
+📡 تغذية الأسعار: *{data_feed_status}*
+⏰ آخر فحص: *{last_analysis_time}*
+🏛️ جلسة التداول: *{active_session}*
+━━━━━━━━━━━━━━━━━━━━"""
         return msg
 
     @staticmethod
@@ -203,120 +156,9 @@ class MessageFormatter:
         for t in trades[:10]:
             dir_icon = '🟢 BUY' if t['direction'] == 'BUY' else '🔴 SELL'
             status_icon = '✅ TP' if 'TP' in t['status'] else '🛑 SL' if t['status'] == 'SL_HIT' else '⏳ WAITING'
-            lines.append(
-                f"• *{t['symbol']}* ({t['timeframe']}) | {dir_icon} @ `{t['entry']}` ➔ Status: *{t['status']}* ({status_icon})"
-            )
-        lines.append("━━━━━━━━━━━━━━━━━━━━\n🤖 Mustafa Bot Persistence Log")
+            lines.append(f"• *{t['symbol']}* ({t['timeframe']}) | {dir_icon} @ `{t['entry']}` ➔ {t['status']} ({status_icon})")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
         return "\n".join(lines)
-
-    @staticmethod
-    def format_institutional_signal(setup: dict) -> str:
-        """Format an institutional trade setup into a highly structured report."""
-        dir_emoji = '🟢 BUY' if setup['direction'] == 'BUY' else '🔴 SELL'
-        
-        from datetime import datetime, timedelta
-        mecca_time = (datetime.utcnow() + timedelta(hours=3)).strftime('%Y-%m-%d %I:%M:%S %p')
-
-        # Determine dynamic decimals based on symbol
-        symbol = setup.get('symbol', 'XAU/USD')
-        decimals = 5 if ('EUR/USD' in symbol or 'GBP/USD' in symbol) else 3 if 'USD/JPY' in symbol else 2
-        price_fmt = f",.{decimals}f"
-        
-        entry_str = f"{setup.get('entry', 0.0):{price_fmt}}"
-        sl_str = f"{setup.get('stop_loss', 0.0):{price_fmt}}"
-        tp1_str = f"{setup.get('tp1', 0.0):{price_fmt}}"
-        tp2_str = f"{setup.get('tp2', 0.0):{price_fmt}}"
-        tp3_str = f"{setup.get('tp3', 0.0):{price_fmt}}"
-
-        # Formulate status bars
-        def make_progress_bar(percentage: int, total_chars: int = 10, fill_char: str = '🔥', empty_char: str = '⬜') -> str:
-            filled = int(round((percentage / 100) * total_chars))
-            filled = min(total_chars, max(0, filled))
-            return (fill_char * filled) + (empty_char * (total_chars - filled))
-
-        score = setup.get('score', 80)
-        score_bar = make_progress_bar(score, 10, '🔥', '⬜')
-
-        # Format Order Blocks list
-        ob_text = "\n".join([f"  • {ob}" for ob in setup.get('order_blocks', [])]) if setup.get('order_blocks') else "  • No active OB found"
-        # Format Breaker Blocks
-        bb_text = "\n".join([f"  • {bb}" for bb in setup.get('breaker_blocks', [])]) if setup.get('breaker_blocks') else "  • No active Breakers"
-        # Format FVGs
-        fvg_text = "\n".join([f"  • {fvg}" for fvg in setup.get('fvgs', [])]) if setup.get('fvgs') else "  • No open FVG"
-
-        from data.mt5_connection import MT5ConnectionManager
-        td_info = MT5ConnectionManager().get_symbol_info(symbol)
-        td_bid_ask = f"Bid: {td_info['bid']:{price_fmt}} | Ask: {td_info['ask']:{price_fmt}} | Spread: {td_info['spread_pips']} pips" if td_info else "TwelveData Feed Synchronized"
-
-        order_type_str = setup.get('order_type_str', 'MARKET_BUY' if setup['direction'] == 'BUY' else 'MARKET_SELL')
-        
-        # Order Type Badge
-        if 'LIMIT' in order_type_str:
-            order_badge = f"📌 {order_type_str} (أمر معلق ارتدادي)"
-        elif 'STOP' in order_type_str:
-            order_badge = f"🎯 {order_type_str} (أمر معلق اختراقي)"
-        else:
-            order_badge = f"⚡ {order_type_str} (تداول سوق فوري)"
-
-        rank_score_str = f" | التقييم: {score}/100"
-        strategy_title = setup.get('strategy_name', 'SMC + ICT Institutional Strategy')
-
-        exp_time = setup.get('expiration_time', 'N/A')
-        holding_time = setup.get('holding_time', '15-45 دقيقة')
-
-        msg = f"""⚡ *تقرير إشارة تداول مؤسساتية | Mustafa Bot*
-━━━━━━━━━━━━━━━━━━━━
-⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة{rank_score_str}
-📡 الرمز: *{symbol}* | الإطار الزمني: *{setup.get('timeframe_name', 'M15')}*
-🏷️ نوع الأمر: *{order_badge}*
-
-💰 سعر الدخول: `{entry_str}`
-🛑 وقف الخسارة: `{sl_str}`
-🎯 الهدف الأول (TP1): `{tp1_str}`
-🎯 الهدف الثاني (TP2): `{tp2_str}`
-🎯 الهدف الثالث (TP3): `{tp3_str}`
-📈 معامل المخاطرة/العائد: `1:{setup.get('risk_reward', 2.0):.1f}`
-🧠 نسبة الثقة: `{score}/100`
-
-⏱️ انتهاء صلاحية الأمر: `{exp_time}`
-⏳ زمن الاحتفاظ المتوقع: `{holding_time}`
-🏛️ موديل الاستراتيجية: *{strategy_title}*
-📡 تغذية التكات: {td_bid_ask}
-
-━━━━━━━━━━━━━━━━━━━━
-📌 *أسباب الدخول الفنية (Reasons for Entry)*:
-{setup.get('reasons_entry', 'توافق السعر مع هيكل أوردر بلوك والسيولة المؤسساتية.')}
-
-🛑 *أسباب وضع الوقف (Reasons for Stop Loss)*:
-{setup.get('sl_reasons', 'محمي بفاصل أمان هيكلي أسفل قاع السيولة.')}
-
-🎯 *أسباب تحديد الأهداف (Reasons for Targets)*:
-{setup.get('tp_reasons', 'TP1 لتأمين الأرباح، TP2/TP3 لاستهداف الفجوات والسيولة العالية.')}
-
-━━━━━━━━━━━━━━━━━━━━
-📊 معطيات التحليل والهيكل:
-  • اتجاه السوق (Bias): {setup.get('market_bias', 'NEUTRAL')}
-  • الاتجاه الحالي (Trend): {setup.get('trend_direction', 'NEUTRAL')}
-  • هيكل السوق (Market Structure): {setup.get('structure_analysis', 'Balanced')}
-  • تأكيد الكسر (BOS): {'مؤكد ✅' if setup.get('bos_confirmed') else 'غير متوفر ❌'}
-  • تغير الشخصية (CHOCH): {'مؤكد ✅' if setup.get('choch_confirmed') else 'غير متوفر ❌'}
-
-🏛️ الكتل السعرية والفجوات (SMC/ICT Zones):
-  • مناطق الأوردر بلوك (Order Blocks):
-{ob_text}
-  • كتل الاختراق (Breaker Blocks):
-{bb_text}
-  • فجوات القيمة العادلة (FVGs):
-{fvg_text}
-  • المنطقة السعرية (Premium/Discount): {setup.get('premium_discount', 'Discount Zone')}
-
-⚡ درجة جودة الصفقة (Quality Score): {score}/100
-  [{score_bar}]
-🛡️ إدارة المخاطر: 1.0% لكل صفقة
-━━━━━━━━━━━━━━━━━━━━
-⚠️ إخلاء مسؤولية: تداول العملات والمعادن محاط بمخاطر عالية. ليست نصيحة استثمارية.
-🤖 MUSTAFA BOT | SMART ORDER SELECTION ENGINE"""
-        return msg
 
     @staticmethod
     def format_daily_summary(signals_today: int, wins: int, losses: int) -> str:
@@ -324,13 +166,9 @@ class MessageFormatter:
         total = wins + losses
         win_rate = (wins / total * 100) if total > 0 else 0
 
-        msg = f"""📋 ملخص اليوم | MUSTAFA BOT
+        msg = f"""📋 *ملخص اليوم*
 ━━━━━━━━━━━━━━━━━━━━
-📊 إشارات اليوم: {signals_today}
-✅ ناجحة: {wins}
-❌ خاسرة: {losses}
+📊 إشارات اليوم: {signals_today} | ✅ ناجحة: {wins} | ❌ خاسرة: {losses}
 📈 نسبة النجاح: {win_rate:.1f}%
-━━━━━━━━━━━━━━━━━━━━
-🤖 Mustafa Bot | التقرير اليومي"""
-
+━━━━━━━━━━━━━━━━━━━━"""
         return msg
