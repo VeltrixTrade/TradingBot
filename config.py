@@ -81,41 +81,41 @@ class Config:
     SELECTIVITY_PROFILES: dict = {
         'SNIPER': {
             'name': '🎯 القناص (Sniper)',
-            'min_score': 95,
+            'min_score': 85,
             'min_rr': 3.0,
             'max_risk_pct': 1.0,
             'description': 'دقة متناهية جداً ومعايير صارمة للغاية (أقل تكرار للصفقات)'
         },
         'CONSERVATIVE': {
             'name': '🛡️ المحافظ (Conservative)',
-            'min_score': 90,
-            'min_rr': 2.5,
+            'min_score': 75,
+            'min_rr': 3.0,
             'max_risk_pct': 1.0,
             'description': 'دقة مؤسساتية عالية مع حماية حذرة لرأس المال'
         },
         'BALANCED': {
             'name': '⚖️ المتوازن (Balanced)',
-            'min_score': 82,
-            'min_rr': 2.0,
+            'min_score': 75,
+            'min_rr': 3.0,
             'max_risk_pct': 1.5,
             'description': 'توازن مثالي بين الدقة وعدد الصفقات المتاحة (النمط الافتراضي)'
         },
         'AGGRESSIVE': {
             'name': '⚡ الهجومي (Aggressive)',
             'min_score': 75,
-            'min_rr': 1.5,
+            'min_rr': 3.0,
             'max_risk_pct': 2.0,
-            'description': 'اقتناص محركات الفرص السريعة بمرونة أعلى'
+            'description': 'اقتناص محركات الفرص السريعة بمعدل نجاح 75% فما فوق'
         },
         'ULTRA_AGGRESSIVE': {
             'name': '🚀 الهجومي الفائق (Ultra Aggressive)',
             'min_score': 65,
-            'min_rr': 1.2,
+            'min_rr': 2.0,
             'max_risk_pct': 2.5,
             'description': 'أعلى تكرار ممكن للصفقات وتفاعل فوري مع أدنى حركة'
         }
     }
-    DEFAULT_SELECTIVITY: str = 'BALANCED'
+    DEFAULT_SELECTIVITY: str = 'AGGRESSIVE'
 
     # ── Legacy Trading Profiles Compatibility ──
     TRADING_PROFILES: dict = SELECTIVITY_PROFILES

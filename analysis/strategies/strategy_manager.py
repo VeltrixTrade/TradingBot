@@ -77,12 +77,13 @@ class ParallelStrategyManager:
                 logger.warning(f"🛑 Scalping Pipeline Gate rejected setup generation for {symbol} ({timeframe}): {val_res.reason}")
                 return []
 
-        prof_cfg = Config.SELECTIVITY_PROFILES.get(
-            selectivity_profile,
-            Config.SELECTIVITY_PROFILES[Config.DEFAULT_SELECTIVITY]
-        )
-        min_score = prof_cfg['min_score']
-        min_rr = prof_cfg['min_rr']
+        from database.db_manager import DatabaseManager
+        db = DatabaseManager()
+        db_score = db.get_setting('min_score', '75')
+        db_rr = db.get_setting('min_rr', '3.0')
+        
+        min_score = int(db_score) if db_score is not None else 75
+        min_rr = float(db_rr) if db_rr is not None else 3.0
 
         tasks = [
             self._evaluate_single(strat, dataframes, symbol, timeframe, min_score, min_rr)

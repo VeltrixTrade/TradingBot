@@ -39,8 +39,9 @@ class GoldMarketAnalysisEngine:
         symbol_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, Config.SUPPORTED_SYMBOLS['XAU/USD'])
         decimals = symbol_info.get('decimal_places', 2)
 
-        profile_cfg = Config.TRADING_PROFILES.get(profile, Config.TRADING_PROFILES['CONSERVATIVE'])
-        threshold = min_score if min_score is not None else profile_cfg['min_score']
+        from database.db_manager import DatabaseManager
+        db_score = DatabaseManager().get_setting('min_score', '75')
+        threshold = int(db_score) if min_score is None else min_score
 
         # Required timeframes order
         tf_order = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']

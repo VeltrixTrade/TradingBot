@@ -59,10 +59,13 @@ class SignalEngine:
             self.price_fetchers[symbol_key] = PriceFetcher(symbol_key)
         return self.price_fetchers[symbol_key]
 
-    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False, symbol_key: str = 'XAU/USD', profile: str = 'CONSERVATIVE') -> List[Signal]:
+    async def run_analysis(self, signal_type: str = 'SCALP', is_manual: bool = False, symbol_key: str = 'XAU/USD', profile: str = 'AGGRESSIVE') -> List[Signal]:
         """Run complete institutional multi-timeframe analysis pipeline for a specific symbol."""
         try:
-            logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual}, Profile: {profile})...')
+            from database.db_manager import DatabaseManager
+            db = DatabaseManager()
+            target_score = db.get_setting('min_score', '75')
+            logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual}, MinScore: {target_score}%)...')
 
             # 1. Fetch available timeframes
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
@@ -75,8 +78,7 @@ class SignalEngine:
 
             if not data or missing_req:
                 logger.warning(f'Essential price data missing for {symbol_key}. Missing: {missing_req}')
-                from database.db_manager import DatabaseManager
-                DatabaseManager().insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_MISSING_DATA", f"Missing essential timeframes: {missing_req}")
+                db.insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_MISSING_DATA", f"Missing essential timeframes: {missing_req}")
                 return []
 
             # 2. Run institutional analysis engine
@@ -84,9 +86,8 @@ class SignalEngine:
             setups = report.get('setups', [])
 
             if not setups:
-                logger.info(f'No setups passing score filter for {symbol_key} ({signal_type}, Profile: {profile})')
-                from database.db_manager import DatabaseManager
-                DatabaseManager().insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_NO_QUALIFIED_SETUPS", f"Gold engine found zero setups matching profile threshold ({profile})")
+                logger.info(f'No setups passing score filter for {symbol_key} ({signal_type}, TargetScore: {target_score}%)')
+                db.insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_NO_QUALIFIED_SETUPS", f"Gold engine found zero setups matching target threshold ({target_score}%)")
                 return []
 
             # Convert setups to Signal models & Register to Database

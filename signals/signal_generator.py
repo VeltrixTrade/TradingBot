@@ -134,14 +134,13 @@ class SignalGenerator:
         score_comp_json = json.dumps(scoring_res['breakdown'])
 
         db_score = self.db.get_setting('min_score')
-        min_required_score = int(db_score) if db_score is not None else 88
+        min_required_score = int(db_score) if db_score is not None else 75
 
         if calculated_score < min_required_score:
             reason = "REJECTED_LOW_CONFIDENCE_SCORE"
             details = f"Score {calculated_score}/100 below required {min_required_score}. Factors: {', '.join(factors)}"
             self.db.insert_rejected_signal(symbol_key, direction_str, calculated_score, risk_reward, reason, details, strategy=setup.get('strategy_name', 'SMC/ICT'), score_components=score_comp_json)
             self.db.record_strategy_eval(setup.get('strategy_name', 'SMC/ICT'), symbol_key, False, calculated_score, risk_reward)
-            return None, reason
             return None, reason
 
         # ── STAGE 5: Duplicate Active Signal Prevention ──
