@@ -304,31 +304,19 @@ class MustafaBot:
         self._analysis_running = False
 
     async def broadcast_signal_to_users(self, msg_text: str) -> None:
-        """Broadcast signal to main channel and all active registered Telegram bot users."""
+        """Broadcast signal EXCLUSIVELY to the linked Telegram channel."""
         if not self.app:
             return
 
-        sent_chats = set()
-
-        # 1. Main Channel or Configured Chat ID
+        # Send exclusively to the linked Telegram channel / chat ID
         if self.chat_id and str(self.chat_id).strip() not in ('0', ''):
             try:
                 await self.app.bot.send_message(chat_id=self.chat_id, text=msg_text, parse_mode="Markdown")
-                sent_chats.add(str(self.chat_id))
+                logger.info(f"📤 Signal broadcasted exclusively to linked channel ({self.chat_id})")
             except Exception as e:
-                logger.error(f"Error sending signal to main chat_id {self.chat_id}: {e}")
-
-        # 2. All Registered Active Bot Users
-        from database.db_manager import DatabaseManager
-        users = DatabaseManager().get_active_users()
-        for u in users:
-            cid_str = str(u['chat_id'])
-            if cid_str not in sent_chats:
-                try:
-                    await self.app.bot.send_message(chat_id=u['chat_id'], text=msg_text, parse_mode="Markdown")
-                    sent_chats.add(cid_str)
-                except Exception as u_err:
-                    logger.warning(f"Failed to broadcast signal to user {cid_str}: {u_err}")
+                logger.error(f"Error sending signal to linked channel {self.chat_id}: {e}")
+        else:
+            logger.warning("⚠️ No linked Telegram channel ID configured (TELEGRAM_CHAT_ID / TELEGRAM_CHANNEL_ID)")
 
     async def on_fast_scanner_signal(self, setup: dict) -> None:
         """Broadcast instant winning scalping setup immediately to all users."""
