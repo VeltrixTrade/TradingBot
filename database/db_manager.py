@@ -170,29 +170,61 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-                cursor.execute("""
-                INSERT INTO trades (
-                    id, symbol, direction, timeframe, entry, stop_loss,
-                    tp1, tp2, tp3, confidence_score, risk_reward, status,
-                    created_at, mae, mfe, analysis_report
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    trade_data['id'],
-                    trade_data['symbol'],
-                    trade_data['direction'],
-                    trade_data['timeframe'],
-                    trade_data['entry'],
-                    trade_data['stop_loss'],
-                    trade_data['tp1'],
-                    trade_data['tp2'],
-                    trade_data['tp3'],
-                    trade_data['confidence_score'],
-                    trade_data['risk_reward'],
-                    trade_data.get('status', 'WAITING_ENTRY'),
-                    trade_data.get('created_at', now_str),
-                    0.0, 0.0,
-                    trade_data.get('analysis_report', '')
-                ))
+                
+                # Check for order_type column compatibility
+                cursor.execute("PRAGMA table_info(trades)")
+                cols = [c['name'] for c in cursor.fetchall()]
+
+                if 'order_type' in cols and 'expiration_time' in cols:
+                    cursor.execute("""
+                    INSERT INTO trades (
+                        id, symbol, direction, order_type, timeframe, entry, stop_loss,
+                        tp1, tp2, tp3, confidence_score, risk_reward, status, expiration_time,
+                        created_at, mae, mfe, analysis_report
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        trade_data['id'],
+                        trade_data['symbol'],
+                        trade_data['direction'],
+                        trade_data.get('order_type', 'MARKET_BUY'),
+                        trade_data['timeframe'],
+                        trade_data['entry'],
+                        trade_data['stop_loss'],
+                        trade_data['tp1'],
+                        trade_data['tp2'],
+                        trade_data['tp3'],
+                        trade_data['confidence_score'],
+                        trade_data['risk_reward'],
+                        trade_data.get('status', 'PENDING'),
+                        trade_data.get('expiration_time', ''),
+                        trade_data.get('created_at', now_str),
+                        0.0, 0.0,
+                        trade_data.get('analysis_report', '')
+                    ))
+                else:
+                    cursor.execute("""
+                    INSERT INTO trades (
+                        id, symbol, direction, timeframe, entry, stop_loss,
+                        tp1, tp2, tp3, confidence_score, risk_reward, status,
+                        created_at, mae, mfe, analysis_report
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        trade_data['id'],
+                        trade_data['symbol'],
+                        trade_data['direction'],
+                        trade_data['timeframe'],
+                        trade_data['entry'],
+                        trade_data['stop_loss'],
+                        trade_data['tp1'],
+                        trade_data['tp2'],
+                        trade_data['tp3'],
+                        trade_data['confidence_score'],
+                        trade_data['risk_reward'],
+                        trade_data.get('status', 'PENDING'),
+                        trade_data.get('created_at', now_str),
+                        0.0, 0.0,
+                        trade_data.get('analysis_report', '')
+                    ))
 
                 # Log initial state transition
                 cursor.execute("""
@@ -201,7 +233,7 @@ class DatabaseManager:
                 """, (
                     trade_data['id'],
                     'NONE',
-                    trade_data.get('status', 'WAITING_ENTRY'),
+                    trade_data.get('status', 'PENDING'),
                     trade_data['entry'],
                     now_str,
                     'Signal Created & Initialized'
@@ -273,18 +305,33 @@ class DatabaseManager:
             logger.error(f"Error updating trade excursion in DB: {e}")
 
     def get_active_trades(self) -> List[Dict]:
-        """Fetch all non-terminal trades currently active or pending."""
+        """Fetch all trades currently in active states (ACTIVE, PENDING, TP1_HIT, TP2_HIT)."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                SELECT * FROM trades
-                WHERE status NOT IN ('TP3_HIT', 'SL_HIT', 'CLOSED', 'CANCELLED')
+                SELECT * FROM trades 
+                WHERE status IN ('ACTIVE', 'PENDING', 'WAITING_ENTRY', 'TP1_HIT', 'TP2_HIT')
                 ORDER BY created_at DESC
                 """)
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching active trades: {e}")
+            return []
+
+    def get_active_pending_orders(self) -> List[Dict]:
+        """Fetch all trades currently in PENDING state awaiting activation."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT * FROM trades 
+                WHERE status IN ('PENDING', 'WAITING_ENTRY')
+                ORDER BY created_at DESC
+                """)
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching pending orders: {e}")
             return []
 
     def get_all_trades(self, limit: int = 50) -> List[Dict]:

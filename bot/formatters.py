@@ -248,26 +248,50 @@ class MessageFormatter:
         td_info = MT5ConnectionManager().get_symbol_info(symbol)
         td_bid_ask = f"Bid: {td_info['bid']:{price_fmt}} | Ask: {td_info['ask']:{price_fmt}} | Spread: {td_info['spread_pips']} pips" if td_info else "TwelveData Feed Synchronized"
 
+        order_type_str = setup.get('order_type_str', 'MARKET_BUY' if setup['direction'] == 'BUY' else 'MARKET_SELL')
+        
+        # Order Type Badge
+        if 'LIMIT' in order_type_str:
+            order_badge = f"📌 {order_type_str} (أمر معلق ارتدادي)"
+        elif 'STOP' in order_type_str:
+            order_badge = f"🎯 {order_type_str} (أمر معلق اختراقي)"
+        else:
+            order_badge = f"⚡ {order_type_str} (تداول سوق فوري)"
+
         rank_score_str = f" | التقييم: {score}/100"
         strategy_title = setup.get('strategy_name', 'SMC + ICT Institutional Strategy')
 
-        msg = f"""⚡ *إشارة تداول فورية | TwelveData Live Data*
+        exp_time = setup.get('expiration_time', 'N/A')
+        holding_time = setup.get('holding_time', '15-45 دقيقة')
+
+        msg = f"""⚡ *تقرير إشارة تداول مؤسساتية | Mustafa Bot*
 ━━━━━━━━━━━━━━━━━━━━
 ⏰ تاريخ التقرير: {mecca_time} بتوقيت مكة المكرمة{rank_score_str}
-📡 المصدر: TwelveData Real-Time API
+📡 الرمز: *{symbol}* | الإطار الزمني: *{setup.get('timeframe_name', 'M15')}*
+🏷️ نوع الأمر: *{order_badge}*
 
-Symbol: {symbol}
-Trade Type: {dir_emoji}
-Entry: {entry_str}
-Stop Loss: {sl_str}
-Take Profit 1: {tp1_str}
-Take Profit 2: {tp2_str}
-Risk-to-Reward: 1:{setup.get('risk_reward', 2.0):.1f}
-Confidence Score: {score}/100
-Timeframe: {setup.get('timeframe_name', 'M15')}
-Live Ticks: {td_bid_ask}
-Strategy Module: {strategy_title}
-Reason for Entry: {setup.get('reasons_entry', 'Structure alignment')}
+💰 سعر الدخول: `{entry_str}`
+🛑 وقف الخسارة: `{sl_str}`
+🎯 الهدف الأول (TP1): `{tp1_str}`
+🎯 الهدف الثاني (TP2): `{tp2_str}`
+🎯 الهدف الثالث (TP3): `{tp3_str}`
+📈 معامل المخاطرة/العائد: `1:{setup.get('risk_reward', 2.0):.1f}`
+🧠 نسبة الثقة: `{score}/100`
+
+⏱️ انتهاء صلاحية الأمر: `{exp_time}`
+⏳ زمن الاحتفاظ المتوقع: `{holding_time}`
+🏛️ موديل الاستراتيجية: *{strategy_title}*
+📡 تغذية التكات: {td_bid_ask}
+
+━━━━━━━━━━━━━━━━━━━━
+📌 *أسباب الدخول الفنية (Reasons for Entry)*:
+{setup.get('reasons_entry', 'توافق السعر مع هيكل أوردر بلوك والسيولة المؤسساتية.')}
+
+🛑 *أسباب وضع الوقف (Reasons for Stop Loss)*:
+{setup.get('sl_reasons', 'محمي بفاصل أمان هيكلي أسفل قاع السيولة.')}
+
+🎯 *أسباب تحديد الأهداف (Reasons for Targets)*:
+{setup.get('tp_reasons', 'TP1 لتأمين الأرباح، TP2/TP3 لاستهداف الفجوات والسيولة العالية.')}
 
 ━━━━━━━━━━━━━━━━━━━━
 📊 معطيات التحليل والهيكل:
@@ -284,26 +308,14 @@ Reason for Entry: {setup.get('reasons_entry', 'Structure alignment')}
 {bb_text}
   • فجوات القيمة العادلة (FVGs):
 {fvg_text}
-  • مستويات السيولة (Liquidity Pools):
-  • {setup.get('liquidity_zones', 'No major liquidity pool swept')}
   • المنطقة السعرية (Premium/Discount): {setup.get('premium_discount', 'Discount Zone')}
-
-📐 تأكيدات الدخول والزخم:
-  • تأكيد السيولة المؤسساتية: {setup.get('institutional_confirmation', 'Neutral')}
-  • فحص الزخم (Momentum): {setup.get('momentum_analysis', 'Neutral')}
-  • جلسة التداول النشطة: {setup.get('session_analysis', 'All Session')}
-  • معدل التذبذب والسيولة: {setup.get('volatility_analysis', 'N/A')}
 
 ⚡ درجة جودة الصفقة (Quality Score): {score}/100
   [{score_bar}]
-🧠 نسبة الثقة: {setup.get('confidence', 80)}%
-🛡️ مستوى إدارة المخاطر: {setup.get('risk_pct', '1.0%')}
-
-📝 المنطق والتبرير الفني للدخول:
-{setup.get('reasoning', 'Aligned with institutional order flow.')}
+🛡️ إدارة المخاطر: 1.0% لكل صفقة
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ إخلاء مسؤولية: تداول العملات والمعادن محاط بمخاطر عالية. ليست نصيحة استثمارية.
-🤖 MUSTAFA BOT | MULTI-SYMBOL ENGINE"""
+🤖 MUSTAFA BOT | SMART ORDER SELECTION ENGINE"""
         return msg
 
     @staticmethod

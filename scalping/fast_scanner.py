@@ -92,6 +92,72 @@ class FastMarketScanner:
         sorted_setups = self.priority_queue.rank_and_sort_setups(all_candidate_setups)
         return sorted_setups
 
+    async def check_pending_orders_activation(self) -> None:
+        """Monitor active pending orders for live price activation, invalidation, or expiration."""
+        try:
+            from database.db_manager import DatabaseManager
+            from datetime import datetime, timezone
+
+            db = DatabaseManager()
+            pending_orders = db.get_active_pending_orders()
+            if not pending_orders:
+                return
+
+            now_utc = datetime.now(timezone.utc)
+
+            for order in pending_orders:
+                sym = order['symbol']
+                fetcher = self._get_fetcher(sym)
+                live_price = fetcher.get_current_price()
+                if not live_price:
+                    continue
+
+                order_id = order['id']
+                entry = order['entry']
+                sl = order['stop_loss']
+                order_type = order.get('order_type', 'MARKET_BUY')
+                direction = order['direction']
+                exp_str = order.get('expiration_time', '')
+
+                # 1. Expiration Check
+                if exp_str and exp_str != 'N/A (نشط حالياً)':
+                    try:
+                        # Expiration format: HH:MM UTC (YYYY-MM-DD)
+                        exp_dt = datetime.strptime(exp_str, '%H:%M UTC (%Y-%m-%d)').replace(tzinfo=timezone.utc)
+                        if now_utc > exp_dt:
+                            db.update_trade_status(order_id, 'EXPIRED', trigger_price=live_price, notes="Pending order timed out")
+                            logger.info(f"⏳ Pending Order {order_id} ({sym}) EXPIRED")
+                            self.diagnostics.log_event("PendingOrderManager", "INFO", f"Order {order_id} ({sym}) expired")
+                            continue
+                    except Exception:
+                        pass
+
+                # 2. Structure Invalidation Check (Price breaches SL before entry)
+                if (direction == 'BUY' and live_price <= sl) or (direction == 'SELL' and live_price >= sl):
+                    db.update_trade_status(order_id, 'CANCELLED_INVALIDATED', trigger_price=live_price, notes="Structure invalidated (price hit SL before entry)")
+                    logger.info(f"🚫 Pending Order {order_id} ({sym}) CANCELLED_INVALIDATED (Hit SL before entry)")
+                    self.diagnostics.log_event("PendingOrderManager", "WARNING", f"Pending Order {order_id} ({sym}) invalidated prior to entry")
+                    continue
+
+                # 3. Activation Check
+                is_activated = False
+                if order_type == 'BUY_LIMIT' and live_price <= entry:
+                    is_activated = True
+                elif order_type == 'SELL_LIMIT' and live_price >= entry:
+                    is_activated = True
+                elif order_type == 'BUY_STOP' and live_price >= entry:
+                    is_activated = True
+                elif order_type == 'SELL_STOP' and live_price <= entry:
+                    is_activated = True
+
+                if is_activated:
+                    db.update_trade_status(order_id, 'ACTIVE', trigger_price=live_price, notes=f"Activated at price {live_price}")
+                    logger.info(f"⚡ Pending Order {order_id} ({sym}) ACTIVATED -> Now ACTIVE trade!")
+                    self.diagnostics.log_event("PendingOrderManager", "INFO", f"Order {order_id} ({sym}) activated @ {live_price}")
+
+        except Exception as e:
+            logger.error(f"Error checking pending orders activation: {e}")
+
     async def start_continuous_scanner_loop(self, scan_interval_seconds: int = 10) -> None:
         """Background continuous worker loop running non-stop scans."""
         self.is_scanning = True
@@ -99,6 +165,9 @@ class FastMarketScanner:
 
         while self.is_scanning:
             try:
+                # Monitor pending order activations & invalidations
+                await self.check_pending_orders_activation()
+
                 setups = await self.run_single_scan_cycle()
                 self.diagnostics.update_last_analysis_time()
 

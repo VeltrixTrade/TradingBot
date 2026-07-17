@@ -132,5 +132,41 @@ class TestTradingStrategies(unittest.TestCase):
         if defective_strategies:
             self.fail(f"DEFECTIVE STRATEGIES DETECTED: {defective_strategies}. These strategies failed to produce signals on benchmark data!")
 
+    def test_smart_order_selection(self):
+        """Verify SmartOrderSelector generates optimal Market, Limit, and Stop order types."""
+        from signals.order_selector import SmartOrderSelector
+        from signals.models import OrderType
+
+        fake_exec = {'order_blocks': [], 'fair_value_gaps': [], 'liquidity': {}}
+
+        # 1. Market Order (Price touching entry)
+        ot1, st1, exp1, hold1, re1, slr1, tpr1 = SmartOrderSelector.select_order_type(
+            'BUY', 2400.0, 2400.1, 2390.0, 2410.0, 2420.0, 2430.0, "SMC Strategy", "SCALP", fake_exec
+        )
+        self.assertIn(ot1, [OrderType.MARKET_BUY, OrderType.BUY_LIMIT])
+
+        # 2. Buy Limit Order (Price higher than entry zone, waiting for retracement down)
+        ot2, st2, exp2, hold2, re2, slr2, tpr2 = SmartOrderSelector.select_order_type(
+            'BUY', 2420.0, 2400.0, 2390.0, 2410.0, 2420.0, 2430.0, "SMC Strategy", "SCALP", fake_exec
+        )
+        self.assertEqual(ot2, OrderType.BUY_LIMIT)
+        self.assertEqual(st2.value, 'PENDING')
+
+        # 3. Sell Limit Order (Price lower than entry zone, waiting for retracement up)
+        ot3, st3, exp3, hold3, re3, slr3, tpr3 = SmartOrderSelector.select_order_type(
+            'SELL', 2380.0, 2400.0, 2410.0, 2390.0, 2380.0, 2370.0, "SMC Strategy", "SCALP", fake_exec
+        )
+        self.assertEqual(ot3, OrderType.SELL_LIMIT)
+        self.assertEqual(st3.value, 'PENDING')
+
+        # 4. Buy Stop Order (Breakout strategy, entry higher than current price)
+        ot4, st4, exp4, hold4, re4, slr4, tpr4 = SmartOrderSelector.select_order_type(
+            'BUY', 2400.0, 2420.0, 2390.0, 2430.0, 2440.0, 2450.0, "Breakout Strategy", "SCALP", fake_exec
+        )
+        self.assertEqual(ot4, OrderType.BUY_STOP)
+        self.assertEqual(st4.value, 'PENDING')
+
+        print("\n[OK] SmartOrderSelector verified for Market, Limit, and Stop order types successfully.")
+
 if __name__ == '__main__':
     unittest.main()

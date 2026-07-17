@@ -106,10 +106,15 @@ class SignalEngine:
                 formatted_report = MessageFormatter.format_institutional_signal(setup)
 
                 sig_id = str(uuid.uuid4())[:8]
+                from signals.models import OrderType, SignalStatus
+                order_type_obj = setup.get('order_type', OrderType.MARKET_BUY)
+                status_obj = SignalStatus.PENDING if setup.get('status') == 'PENDING' else SignalStatus.ACTIVE
+
                 signal = Signal(
                     id=sig_id,
                     type=sig_type_val,
                     direction=direction_val,
+                    order_type=order_type_obj,
                     entry=setup['entry'],
                     stop_loss=setup['stop_loss'],
                     take_profit_1=setup['tp1'],
@@ -118,33 +123,41 @@ class SignalEngine:
                     risk_reward=setup['risk_reward'],
                     confidence=setup['score'],
                     timeframe=exec_tf.upper(),
+                    expiration_time=setup.get('expiration_time', ''),
+                    estimated_holding_time=setup.get('holding_time', ''),
+                    entry_reasons=setup.get('reasons_entry', ''),
+                    sl_reasons=setup.get('sl_reasons', ''),
+                    tp_reasons=setup.get('tp_reasons', ''),
                     smc_setup=setup['structure_analysis'],
                     ai_consensus=setup['institutional_confirmation'],
                     ai_agreement=3,
                     analysis_text=formatted_report,
-                    prediction=setup['reasoning'],
+                    prediction=setup.get('reasoning', ''),
                     reversal_zones=[],
-                    status=SignalStatus.ACTIVE
+                    status=status_obj
                 )
                 filtered.append(signal)
 
-                # Save accepted trade to SQLite database for active lifecycle tracking
+                # Save accepted trade/pending order to SQLite database for active lifecycle tracking
                 trade_record = {
                     'id': sig_id,
                     'symbol': symbol_key,
                     'direction': setup['direction'],
+                    'order_type': setup.get('order_type_str', 'MARKET_BUY'),
                     'entry': setup['entry'],
                     'stop_loss': setup['stop_loss'],
                     'tp1': setup['tp1'],
                     'tp2': setup['tp2'],
                     'tp3': setup['tp3'],
                     'timeframe': exec_tf.upper(),
-                    'score': setup['score'],
+                    'confidence_score': setup['score'],
                     'risk_reward': setup['risk_reward'],
-                    'status': 'OPEN',
+                    'status': setup.get('status', 'PENDING'),
+                    'expiration_time': setup.get('expiration_time', ''),
+                    'analysis_report': formatted_report,
                     'result': 'PENDING'
                 }
-                db.save_trade(trade_record)
+                db.insert_trade(trade_record)
 
             # 3. Prevent duplicates and prune active signals (keep only last 24 hours)
             if filtered:

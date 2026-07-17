@@ -151,6 +151,21 @@ class GoldMarketAnalysisEngine:
             if score >= threshold:
                 inst_grade = "Institutional Grade" if score >= 95 else "Strong" if score >= 85 else "Moderate"
                 
+                from signals.order_selector import SmartOrderSelector
+                strat_name = setup.get('strategy_name', 'SMC + ICT Institutional Strategy')
+                order_type, initial_status, exp_time, holding_time, reasons_entry, sl_reasons, tp_reasons = SmartOrderSelector.select_order_type(
+                    direction=direction,
+                    current_price=current_price,
+                    entry_price=entry,
+                    stop_loss=stop_loss,
+                    tp1=tp1,
+                    tp2=tp2,
+                    tp3=tp3,
+                    strategy_name=strat_name,
+                    signal_type=signal_type,
+                    exec_analysis=exec_analysis
+                )
+
                 # Active Session
                 from utils.scheduler import AnalysisScheduler
                 current_hour_utc = datetime.now(timezone.utc).hour
@@ -176,6 +191,11 @@ class GoldMarketAnalysisEngine:
                     'symbol': symbol_key,
                     'timeframe_name': exec_tf.upper(),
                     'direction': direction,
+                    'order_type': order_type,
+                    'order_type_str': order_type.value,
+                    'status': initial_status.value,
+                    'expiration_time': exp_time,
+                    'holding_time': holding_time,
                     'entry': entry,
                     'stop_loss': stop_loss,
                     'tp1': tp1,
@@ -200,10 +220,6 @@ class GoldMarketAnalysisEngine:
                     'score': score,
                     'confidence': score,
                     'inst_grade': inst_grade,
-                    'reasons_entry': f"SMC setup alignment with macro bias, confirmed by FVG confluence and Triple EMA alignment.",
-                    'reasons_sl': f"Placed safely behind key institutional Order Block to avoid sweeps.",
-                    'reasons_tp': f"Targets mapped to nearest major support/resistance levels and liquidity pools.",
-                    'invalidation': invalidation_reason,
                     'reasoning': self._build_detailed_reasoning_new(direction, details, score, inst_grade, invalidation_reason)
                 }
 

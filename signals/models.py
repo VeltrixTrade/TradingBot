@@ -19,12 +19,23 @@ class Direction(Enum):
     SELL = 'SELL'
 
 
+class OrderType(Enum):
+    MARKET_BUY = 'MARKET_BUY'
+    MARKET_SELL = 'MARKET_SELL'
+    BUY_LIMIT = 'BUY_LIMIT'
+    SELL_LIMIT = 'SELL_LIMIT'
+    BUY_STOP = 'BUY_STOP'
+    SELL_STOP = 'SELL_STOP'
+
+
 class SignalStatus(Enum):
+    PENDING = 'PENDING'
     ACTIVE = 'ACTIVE'
     TP1_HIT = 'TP1_HIT'
     TP2_HIT = 'TP2_HIT'
     TP3_HIT = 'TP3_HIT'
     SL_HIT = 'SL_HIT'
+    CANCELLED_INVALIDATED = 'CANCELLED_INVALIDATED'
     EXPIRED = 'EXPIRED'
 
 
@@ -98,6 +109,7 @@ class Signal:
     id: str = ''
     type: SignalType = SignalType.SCALP
     direction: Direction = Direction.BUY
+    order_type: OrderType = OrderType.MARKET_BUY
     entry: float = 0.0
     stop_loss: float = 0.0
     take_profit_1: float = 0.0
@@ -106,6 +118,11 @@ class Signal:
     risk_reward: float = 0.0
     confidence: int = 0
     timeframe: str = ''
+    expiration_time: str = ''
+    estimated_holding_time: str = ''
+    entry_reasons: str = ''
+    sl_reasons: str = ''
+    tp_reasons: str = ''
     smc_setup: str = ''
     smc_analysis: Optional[SMCAnalysis] = None
     ai_analyses: List[AIAnalysis] = field(default_factory=list)
