@@ -102,42 +102,46 @@ class SignalGenerator:
         reward = abs(tp3 - entry) if tp3 > 0 else abs(tp1 - entry)
         risk_reward = round(reward / risk, 2) if risk > 0 else 0.0
 
-        # Read configured minimum R:R or default to 3.0
+        # Read configured minimum R:R or default to 3.0 (Strictly enforced, never relaxed)
         db_rr = self.db.get_setting('min_rr')
         target_rr = float(db_rr) if db_rr is not None else 3.0
-        if is_manual:
-            target_rr = max(1.5, target_rr - 1.0)  # Relaxed slightly for manual query review
 
         if risk_reward < target_rr:
             reason = "REJECTED_INSUFFICIENT_RR"
-            self.db.insert_rejected_signal(symbol_key, direction_str, 0, risk_reward, reason, f"Risk/Reward {risk_reward} below minimum threshold 1:{target_rr}")
+            self.db.insert_rejected_signal(symbol_key, direction_str, 0, risk_reward, reason, f"Risk/Reward {risk_reward} below minimum threshold 1:{target_rr}", strategy=setup.get('strategy_name', 'SMC/ICT'))
+            self.db.record_strategy_eval(setup.get('strategy_name', 'SMC/ICT'), symbol_key, False, 0, risk_reward)
             return None, reason
 
         # ── STAGE 3: Spread & Volatility Check ──
         from data.mt5_connection import MT5ConnectionManager
         sym_info = MT5ConnectionManager().get_symbol_info(symbol_key)
         spread_pips = sym_info['spread_pips'] if sym_info else 0.3
-        max_allowed_spread = Config.MAX_ALLOWED_SPREAD_PIPS
+        
+        db_max_spread = self.db.get_setting('max_spread')
+        max_allowed_spread = float(db_max_spread) if db_max_spread is not None else Config.MAX_ALLOWED_SPREAD_PIPS
 
         if spread_pips > max_allowed_spread:
             reason = "REJECTED_EXCESSIVE_SPREAD"
-            self.db.insert_rejected_signal(symbol_key, direction_str, 0, risk_reward, reason, f"Current spread {spread_pips} pips exceeds limit {max_allowed_spread}")
+            self.db.insert_rejected_signal(symbol_key, direction_str, 0, risk_reward, reason, f"Current spread {spread_pips} pips exceeds limit {max_allowed_spread}", strategy=setup.get('strategy_name', 'SMC/ICT'))
+            self.db.record_strategy_eval(setup.get('strategy_name', 'SMC/ICT'), symbol_key, False, 0, risk_reward)
             return None, reason
 
         # ── STAGE 4: Quantitative Score Engine Evaluation ──
+        import json
         scoring_res = TradeScoringEngine.calculate_score(setup, market_data, ai_consensus)
         calculated_score = scoring_res['score']
         factors = scoring_res['factors']
+        score_comp_json = json.dumps(scoring_res['breakdown'])
 
         db_score = self.db.get_setting('min_score')
-        min_required_score = int(db_score) if db_score is not None else 90
-        if is_manual:
-            min_required_score = max(75, min_required_score - 10)
+        min_required_score = int(db_score) if db_score is not None else 88
 
         if calculated_score < min_required_score:
             reason = "REJECTED_LOW_CONFIDENCE_SCORE"
             details = f"Score {calculated_score}/100 below required {min_required_score}. Factors: {', '.join(factors)}"
-            self.db.insert_rejected_signal(symbol_key, direction_str, calculated_score, risk_reward, reason, details)
+            self.db.insert_rejected_signal(symbol_key, direction_str, calculated_score, risk_reward, reason, details, strategy=setup.get('strategy_name', 'SMC/ICT'), score_components=score_comp_json)
+            self.db.record_strategy_eval(setup.get('strategy_name', 'SMC/ICT'), symbol_key, False, calculated_score, risk_reward)
+            return None, reason
             return None, reason
 
         # ── STAGE 5: Duplicate Active Signal Prevention ──

@@ -281,6 +281,42 @@ class BotCommands:
                     self.db.save_setting('max_signals', text)
                     self.db.log_admin_action(chat_id, "SET_MAX_SIGNALS", f"SUCCESS ({text})")
                     await self._show_admin_settings_menu(chat_id, context.bot)
+
+                elif current_state == 'admin_set_max_spread':
+                    self.db.save_setting('max_spread', text)
+                    self.db.log_admin_action(chat_id, "SET_MAX_SPREAD", f"SUCCESS ({text})")
+                    await self._show_admin_settings_menu(chat_id, context.bot)
+
+                elif current_state == 'admin_replay_id':
+                    try:
+                        rejected_id = int(text.strip())
+                        rec = self.db.get_rejected_signal_by_id(rejected_id)
+                        if not rec:
+                            res_text = f"❌ لم يتم العثور على أي صفقة مرفوضة بالرمز التعريفي `{rejected_id}`."
+                        else:
+                            import json
+                            score_comps = json.loads(rec.get('score_components', '{}')) if rec.get('score_components') else {}
+                            comps_formatted = "\n".join([f"  • `{k}`: `{v}`" for k, v in score_comps.items()]) if score_comps else "  • تفاصيل المكونات غير متاحة"
+
+                            res_text = (
+                                f"🔁 *إعادة عرض الصفقة المرفوضة (Signal Replay)* | ID: `{rec['id']}`:\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                f"🌐 الرمز: *{rec['symbol']}* | الاتجاه: *{rec['direction']}*\n"
+                                f"🏛️ الاستراتيجية: *{rec.get('strategy', 'SMC/ICT')}*\n"
+                                f"⏱️ التوقيت: `{rec['timestamp']}`\n"
+                                f"📊 النقاط الإجمالية: `{rec['score']}/100` | RR: `1:{rec['risk_reward']}`\n\n"
+                                f"🛑 *سبب الرفض الحاسم*:\n"
+                                f"  `{rec['reason']}`\n\n"
+                                f"🔬 *تشريح مكونات النقاط التفصيلية*:\n"
+                                f"{comps_formatted}\n\n"
+                                f"📝 *البيانات الإضافية*:\n"
+                                f"_{rec['details']}_\n"
+                                f"━━━━━━━━━━━━━━━━━━━━"
+                            )
+                        keyboard = [[InlineKeyboardButton("⬅ Back to Audit", callback_data="admin_menu_rejected")]]
+                        await self.msg_manager.send_or_edit(context.bot, chat_id, res_text, reply_markup=InlineKeyboardMarkup(keyboard))
+                    except ValueError:
+                        await self.msg_manager.send_or_edit(context.bot, chat_id, "❌ يرجى إدخال رقم ID صحيح (عدد صحيح).")
             except Exception as e:
                 logger.error(f"Admin action input error: {e}")
                 keyboard = [[InlineKeyboardButton("⬅ Back to Panel", callback_data="btn_admin_panel")]]
@@ -459,6 +495,24 @@ class BotCommands:
 
         elif data == "admin_menu_diagnostics":
             await self._show_admin_diagnostics(chat_id, context.bot)
+
+        elif data == "admin_menu_strat_stats":
+            await self._show_admin_strat_stats(chat_id, context.bot)
+
+        elif data == "admin_menu_strat_debug":
+            await self._show_admin_strat_debug(chat_id, context.bot)
+
+        elif data == "admin_prompt_replay":
+            self.user_states[chat_id] = 'admin_replay_id'
+            text = "🔁 *إعادة عرض الصفقة المرفوضة (Signal Replay)*:\n━━━━━━━━━━━━━━━━━━━━\n✍️ يرجى كتابة الرمز التعريفي (ID الرقمي) للصفقة المرفوضة للبدء في التشريح والتمرير الفوري:"
+            keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="admin_menu_rejected")]]
+            await self.msg_manager.send_or_edit(context.bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        elif data == "admin_set_spread_prompt":
+            self.user_states[chat_id] = 'admin_set_max_spread'
+            text = "⚙️ *تحديث أقصى سبريد مسموح (Max Spread)*:\n━━━━━━━━━━━━━━━━━━━━\n✍️ أدخل أقصى قيمة سبريد مسموحة (بالنقاط/Pips - مثال: 5.0):"
+            keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="admin_menu_settings")]]
+            await self.msg_manager.send_or_edit(context.bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
 
         elif data == "admin_restart_services":
             self.diagnostics.update_data_feed_status("RESTARTED (TradingView Live OANDA)")
@@ -1054,7 +1108,11 @@ class BotCommands:
             ],
             [
                 InlineKeyboardButton("🔐 Security & Logs", callback_data="admin_menu_logs"),
-                InlineKeyboardButton("📊 Stats & Users", callback_data="admin_menu_stats")
+                InlineKeyboardButton("📊 Platform Stats", callback_data="admin_menu_stats")
+            ],
+            [
+                InlineKeyboardButton("📊 Strategy Stats", callback_data="admin_menu_strat_stats"),
+                InlineKeyboardButton("🔬 Strategy Debug Mode", callback_data="admin_menu_strat_debug")
             ],
             [
                 InlineKeyboardButton("🏠 Home", callback_data="btn_home")
@@ -1291,11 +1349,51 @@ class BotCommands:
             f"{body}\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
-        keyboard = [[InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]]
+        keyboard = [
+            [InlineKeyboardButton("🔁 Replay Signal by ID", callback_data="admin_prompt_replay")],
+            [InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]
+        ]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _show_admin_diagnostics(self, chat_id: int, bot) -> None:
         """Render live diagnostic audit report showing signal pipeline decision breakdowns."""
         text = self.diagnostics.get_pipeline_audit_report()
         keyboard = [[InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_strat_stats(self, chat_id: int, bot) -> None:
+        """Render per-strategy performance metrics and acceptance rate dashboard."""
+        stats = self.db.get_strategy_statistics()
+        lines = []
+        for s in stats:
+            lines.append(
+                f"📊 *{s['strategy_name']}*:\n"
+                f"  • المسح التراكمي: `{s['scanned']}` | المقبول: `{s['accepted']}` | المرفوض: `{s['rejected']}`\n"
+                f"  • معدل القبول: `{s['acceptance_rate']}%` | معدل الـ RR: `1:{s['avg_rr']}`\n"
+                f"  • متوسط الثقة: `{s['avg_confidence']}/100`"
+            )
+        body = "\n\n".join(lines) if lines else "لا توجد تقييمات استراتيجيات مسجلة حتى الآن."
+        text = (
+            f"📈 *إحصائيات وتقييم أداء الاستراتيجيات (Strategy Statistics)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{body}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_strat_debug(self, chat_id: int, bot) -> None:
+        """Render live debug view of active strategy decision streams."""
+        events = self.diagnostics.get_recent_events(15)
+        debug_lines = []
+        for e in events:
+            debug_lines.append(f"• `[{e.timestamp}]` *[{e.module}]* ({e.severity}): {e.description}")
+        body = "\n".join(debug_lines) if debug_lines else "لا توجد أحداث تشخيص مباشرة حالياً."
+        text = (
+            f"🔬 *نمط استكشاف وتتبع قرارات الاستراتيجيات المباشر (Strategy Debug Mode)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{body}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        keyboard = [[InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))

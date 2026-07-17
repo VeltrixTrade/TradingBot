@@ -135,12 +135,27 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS rejected_signals (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     symbol TEXT NOT NULL,
+                    strategy TEXT DEFAULT 'SMC/ICT',
                     direction TEXT NOT NULL,
                     score INTEGER NOT NULL,
+                    score_components TEXT DEFAULT '{}',
                     risk_reward REAL NOT NULL,
                     reason TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     details TEXT
+                );
+                """)
+
+                # Strategy Performance Evaluations Table
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS strategy_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_name TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    accepted INTEGER NOT NULL,
+                    score INTEGER NOT NULL,
+                    risk_reward REAL NOT NULL
                 );
                 """)
 
@@ -502,18 +517,40 @@ class DatabaseManager:
             logger.error(f"Error fetching admin logs: {e}")
             return []
 
-    # ── Rejected Signals Audit ──
+    # ── Rejected Signals Audit & Replay ──
 
-    def insert_rejected_signal(self, symbol: str, direction: str, score: int, risk_reward: float, reason: str, details: str = "") -> bool:
-        """Record a rejected setup with explicit rationale."""
+    def insert_rejected_signal(
+        self,
+        symbol: str,
+        direction: str,
+        score: int,
+        risk_reward: float,
+        reason: str,
+        details: str = "",
+        strategy: str = "SMC/ICT",
+        score_components: str = "{}"
+    ) -> bool:
+        """Record a rejected setup with explicit rationale and individual score components."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-                cursor.execute("""
-                INSERT INTO rejected_signals (symbol, direction, score, risk_reward, reason, timestamp, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (symbol, direction, score, risk_reward, reason, now_str, details))
+                
+                # Verify column compatibility dynamically for existing DBs
+                cursor.execute("PRAGMA table_info(rejected_signals)")
+                cols = [c['name'] for c in cursor.fetchall()]
+                
+                if 'strategy' in cols and 'score_components' in cols:
+                    cursor.execute("""
+                    INSERT INTO rejected_signals (symbol, strategy, direction, score, score_components, risk_reward, reason, timestamp, details)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (symbol, strategy, direction, score, score_components, risk_reward, reason, now_str, details))
+                else:
+                    cursor.execute("""
+                    INSERT INTO rejected_signals (symbol, direction, score, risk_reward, reason, timestamp, details)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (symbol, direction, score, risk_reward, reason, now_str, details))
+                
                 conn.commit()
                 return True
         except Exception as e:
@@ -529,4 +566,71 @@ class DatabaseManager:
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching rejected signals: {e}")
+            return []
+
+    def get_rejected_signal_by_id(self, rejected_id: int) -> Optional[Dict]:
+        """Fetch a specific rejected setup by ID for signal replay inspection."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM rejected_signals WHERE id = ?", (rejected_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching rejected signal {rejected_id}: {e}")
+            return None
+
+    # ── Strategy Evaluation & Performance Statistics ──
+
+    def record_strategy_eval(self, strategy_name: str, symbol: str, accepted: bool, score: int, risk_reward: float) -> bool:
+        """Record an evaluation event for a strategy."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                cursor.execute("""
+                INSERT INTO strategy_evaluations (strategy_name, symbol, timestamp, accepted, score, risk_reward)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, (strategy_name, symbol, now_str, 1 if accepted else 0, score, risk_reward))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error recording strategy evaluation: {e}")
+            return False
+
+    def get_strategy_statistics(self) -> List[Dict]:
+        """Compute live performance statistics for every strategy."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT 
+                    strategy_name,
+                    COUNT(*) as scanned,
+                    SUM(CASE WHEN accepted = 1 THEN 1 ELSE 0 END) as accepted_count,
+                    SUM(CASE WHEN accepted = 0 THEN 1 ELSE 0 END) as rejected_count,
+                    AVG(score) as avg_confidence,
+                    AVG(risk_reward) as avg_rr
+                FROM strategy_evaluations
+                GROUP BY strategy_name
+                """)
+                rows = cursor.fetchall()
+                stats = []
+                for row in rows:
+                    scanned = row['scanned'] or 0
+                    acc = row['accepted_count'] or 0
+                    rej = row['rejected_count'] or 0
+                    rate = (acc / max(1, scanned)) * 100
+                    stats.append({
+                        'strategy_name': row['strategy_name'],
+                        'scanned': scanned,
+                        'accepted': acc,
+                        'rejected': rej,
+                        'acceptance_rate': round(rate, 1),
+                        'avg_confidence': round(row['avg_confidence'] or 0.0, 1),
+                        'avg_rr': round(row['avg_rr'] or 0.0, 2)
+                    })
+                return stats
+        except Exception as e:
+            logger.error(f"Error computing strategy statistics: {e}")
             return []
