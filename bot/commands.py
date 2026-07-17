@@ -457,6 +457,9 @@ class BotCommands:
         elif data == "admin_menu_rejected":
             await self._show_admin_rejected_signals(chat_id, context.bot)
 
+        elif data == "admin_menu_diagnostics":
+            await self._show_admin_diagnostics(chat_id, context.bot)
+
         elif data == "admin_restart_services":
             self.diagnostics.update_data_feed_status("RESTARTED (TradingView Live OANDA)")
             self.db.log_admin_action(chat_id, "RESTART_SERVICES", "SUCCESS")
@@ -1263,8 +1266,9 @@ class BotCommands:
         keyboard = [
             [
                 InlineKeyboardButton("🚫 Rejected Setups", callback_data="admin_menu_rejected"),
-                InlineKeyboardButton("🔄 Restart Services", callback_data="admin_restart_services")
+                InlineKeyboardButton("🔍 Diagnostic Audit", callback_data="admin_menu_diagnostics")
             ],
+            [InlineKeyboardButton("🔄 Restart Services", callback_data="admin_restart_services")],
             [InlineKeyboardButton("⬅ Back", callback_data="btn_admin_panel")]
         ]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1287,5 +1291,11 @@ class BotCommands:
             f"{body}\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
+        keyboard = [[InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]]
+        await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_admin_diagnostics(self, chat_id: int, bot) -> None:
+        """Render live diagnostic audit report showing signal pipeline decision breakdowns."""
+        text = self.diagnostics.get_pipeline_audit_report()
         keyboard = [[InlineKeyboardButton("⬅ Back to Logs", callback_data="admin_menu_logs")]]
         await self.msg_manager.send_or_edit(bot, chat_id, text, reply_markup=InlineKeyboardMarkup(keyboard))

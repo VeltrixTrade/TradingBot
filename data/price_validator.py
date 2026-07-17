@@ -129,6 +129,22 @@ class MarketPriceValidator:
                 validation_time=now_str
             )
 
+    def _get_timeframe_seconds(self, timeframe: str) -> float:
+        """Get duration of timeframe in seconds."""
+        tf_map = {
+            '1m': 60, 'm1': 60,
+            '3m': 180, 'm3': 180,
+            '5m': 300, 'm5': 300,
+            '15m': 900, 'm15': 900,
+            '30m': 1800, 'm30': 1800,
+            '1h': 3600, 'h1': 3600,
+            '4h': 14400, 'h4': 14400,
+            '1d': 86400, 'd1': 86400,
+            '1w': 604800, 'w1': 604800,
+            '1mo': 2592000, 'mn1': 2592000
+        }
+        return float(tf_map.get(timeframe.lower(), 900))
+
         # 2. Freshness Check
         freshness_secs = 0.0
         try:
@@ -137,11 +153,14 @@ class MarketPriceValidator:
                 now_ts = datetime.now(timezone.utc).timestamp()
                 freshness_secs = max(0.0, now_ts - candle_ts)
 
-                if Config.PRICE_VALIDATION_ENABLED and freshness_secs > Config.MAX_CANDLE_STALE_SECONDS:
+                tf_duration = self._get_timeframe_seconds(timeframe)
+                max_allowed_age = tf_duration + max(300.0, float(Config.MAX_CANDLE_STALE_SECONDS))
+
+                if Config.PRICE_VALIDATION_ENABLED and freshness_secs > max_allowed_age:
                     self.diagnostics.log_event(
                         module="PriceValidator",
                         severity="WARNING",
-                        description=f"Market data rejected for {symbol_key} ({timeframe}): Stale by {freshness_secs:.1f}s"
+                        description=f"Market data rejected for {symbol_key} ({timeframe}): Stale by {freshness_secs:.1f}s (Limit: {max_allowed_age:.1f}s)"
                     )
                     return ValidationResult(
                         is_valid=False,
@@ -151,7 +170,7 @@ class MarketPriceValidator:
                         spread_pips=0.0,
                         freshness_seconds=round(freshness_secs, 1),
                         status_code='REJECTED_STALE',
-                        reason=f'Market candle is stale ({freshness_secs:.1f}s > {Config.MAX_CANDLE_STALE_SECONDS}s)',
+                        reason=f'Market candle is stale ({freshness_secs:.1f}s > {max_allowed_age:.1f}s)',
                         tv_source='N/A',
                         validation_time=now_str
                     )

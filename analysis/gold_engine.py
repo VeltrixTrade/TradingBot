@@ -345,36 +345,38 @@ class GoldMarketAnalysisEngine:
         """Calculate weighted institutional Trade Quality Score (0-100) using the Dynamic Confidence Engine."""
         details = {}
         
+        target_bias = 'BULLISH' if direction == 'BUY' else 'BEARISH'
+
         # 1. Market Structure (20%)
         ms = exec_analysis['market_structure']
         ms_score = 0
-        if ms['trend'] == direction + "ISH" or (direction == 'BUY' and ms['trend'] == 'BULLISH') or (direction == 'SELL' and ms['trend'] == 'BEARISH'):
+        if ms['trend'] == target_bias:
             ms_score += 40
-        if ms['structure_strength'] >= 75:
+        elif ms['trend'] in ('NEUTRAL', 'RANGING'):
+            ms_score += 20
+        if ms['structure_strength'] >= 60:
             ms_score += 30
         if len(ms['bos_list']) > 0:
             ms_score += 15
         if len(ms['choch_list']) > 0:
             ms_score += 15
-        market_structure_weighted = (ms_score / 100) * 20
-        details['market_structure'] = f"{ms_score}/100 ({market_structure_weighted:.1f}%)"
+        market_structure_weighted = (min(100, ms_score) / 100) * 20
+        details['market_structure'] = f"{min(100, ms_score)}/100 ({market_structure_weighted:.1f}%)"
 
         # 2. Liquidity (15%)
-        liq_score = 0
+        liq_score = 40
         if fake_breakout:
-            liq_score += 50
+            liq_score += 20
         # Check liquidity pools
         buy_pools = len(exec_analysis['liquidity'].get('buy_side', []))
         sell_pools = len(exec_analysis['liquidity'].get('sell_side', []))
         if buy_pools > 0 or sell_pools > 0:
-            liq_score += 30
+            liq_score += 40
         # Equal Highs/Lows presence
         if exec_analysis['liquidity'].get('all_levels'):
             liq_score += 20
-        else:
-            liq_score += 10
         liquidity_weighted = (min(100, liq_score) / 100) * 15
-        details['liquidity'] = f"{liq_score}/100 ({liquidity_weighted:.1f}%)"
+        details['liquidity'] = f"{min(100, liq_score)}/100 ({liquidity_weighted:.1f}%)"
 
         # 3. Order Flow (15%)
         of_score = 0
@@ -410,20 +412,20 @@ class GoldMarketAnalysisEngine:
 
         # 6. Institutional Confluence (10%)
         inst_conf_score = 0
-        has_breaker = any(b['type'] == direction + '_BREAKER' for b in breaker_blocks)
-        has_ifvg = any(i['type'] == direction + '_IFVG' for i in ifvgs)
+        has_breaker = any(b['type'] == target_bias + '_BREAKER' for b in breaker_blocks)
+        has_ifvg = any(i['type'] == target_bias + '_IFVG' for i in ifvgs)
         if has_breaker:
             inst_conf_score += 50
         if has_ifvg:
             inst_conf_score += 50
         if not has_breaker and not has_ifvg:
             # Fallback to standard OB/FVG confluence
-            if len(exec_analysis['fair_value_gaps']) > 0:
-                inst_conf_score += 40
-            if len(exec_analysis['order_blocks']) > 0:
-                inst_conf_score += 40
+            if len(exec_analysis.get('fair_value_gaps', [])) > 0:
+                inst_conf_score += 50
+            if len(exec_analysis.get('order_blocks', [])) > 0:
+                inst_conf_score += 50
         inst_confluence_weighted = (min(100, inst_conf_score) / 100) * 10
-        details['inst_confluence'] = f"{inst_conf_score}/100 ({inst_confluence_weighted:.1f}%)"
+        details['inst_confluence'] = f"{min(100, inst_conf_score)}/100 ({inst_confluence_weighted:.1f}%)"
 
         # 7. Session Timing (5%)
         from utils.scheduler import AnalysisScheduler
@@ -432,14 +434,12 @@ class GoldMarketAnalysisEngine:
         # Active sessions
         is_london = 8 <= current_hour_utc < 16
         is_ny = 13 <= current_hour_utc < 21
-        if is_london and is_ny:
+        if is_london or is_ny:
             session_score += 100
-        elif is_london or is_ny:
-            session_score += 80
         elif 0 <= current_hour_utc < 8:
-            session_score += 50
+            session_score += 70
         else:
-            session_score += 30
+            session_score += 50
         session_timing_weighted = (session_score / 100) * 5
         details['session_timing'] = f"{session_score}/100 ({session_timing_weighted:.1f}%)"
 
@@ -468,14 +468,23 @@ class GoldMarketAnalysisEngine:
 
         # 10. Macro Bias (5%)
         macro_score = 0
-        if overall_htf_bias == direction:
+        if overall_htf_bias == target_bias:
             macro_score += 50
-        if daily_bias == direction:
+        elif overall_htf_bias in ('NEUTRAL', 'RANGING'):
+            macro_score += 25
+
+        if daily_bias == target_bias:
             macro_score += 30
-        if h4_bias == direction:
+        elif daily_bias in ('NEUTRAL', 'RANGING'):
+            macro_score += 15
+
+        if h4_bias == target_bias:
             macro_score += 20
-        macro_weighted = (macro_score / 100) * 5
-        details['macro_bias'] = f"{macro_score}/100 ({macro_weighted:.1f}%)"
+        elif h4_bias in ('NEUTRAL', 'RANGING'):
+            macro_score += 10
+
+        macro_weighted = (min(100, macro_score) / 100) * 5
+        details['macro_bias'] = f"{min(100, macro_score)}/100 ({macro_weighted:.1f}%)"
 
         # 11. Trade Location (5%)
         loc_score = 0

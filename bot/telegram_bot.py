@@ -64,13 +64,19 @@ class SignalEngine:
         try:
             logger.info(f'🔄 Starting institutional {signal_type} analysis for {symbol_key} (Manual: {is_manual}, Profile: {profile})...')
 
-            # 1. Fetch all 8 required timeframes
+            # 1. Fetch available timeframes
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
             fetcher = self.get_fetcher(symbol_key)
             data = fetcher.get_multi_timeframe_data(tf_list)
 
-            if not data or len(data) < len(tf_list):
-                logger.warning(f'Incomplete price data available for {symbol_key}. Got: {list(data.keys())}')
+            # Essential execution timeframes required for analysis
+            required_tfs = ['15m', '1h', '4h']
+            missing_req = [tf for tf in required_tfs if tf not in data]
+
+            if not data or missing_req:
+                logger.warning(f'Essential price data missing for {symbol_key}. Missing: {missing_req}')
+                from database.db_manager import DatabaseManager
+                DatabaseManager().insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_MISSING_DATA", f"Missing essential timeframes: {missing_req}")
                 return []
 
             # 2. Run institutional analysis engine
@@ -78,14 +84,19 @@ class SignalEngine:
             setups = report.get('setups', [])
 
             if not setups:
-                logger.info(f'No setups passing the 90/100 Trade Quality Score filter for {symbol_key} ({signal_type})')
+                logger.info(f'No setups passing score filter for {symbol_key} ({signal_type}, Profile: {profile})')
+                from database.db_manager import DatabaseManager
+                DatabaseManager().insert_rejected_signal(symbol_key, "NONE", 0, 0.0, "REJECTED_NO_QUALIFIED_SETUPS", f"Gold engine found zero setups matching profile threshold ({profile})")
                 return []
 
-            # Convert setups to Signal models
+            # Convert setups to Signal models & Register to Database
             from signals.models import Direction as ModelDirection, SignalType as ModelSignalType
+            from database.db_manager import DatabaseManager
             import uuid
 
+            db = DatabaseManager()
             filtered = []
+
             for setup in setups:
                 direction_val = ModelDirection.BUY if setup['direction'] == 'BUY' else ModelDirection.SELL
                 sig_type_val = ModelSignalType.SCALP if signal_type == 'SCALP' else ModelSignalType.SWING
@@ -94,8 +105,9 @@ class SignalEngine:
                 # Pre-format the institutional report
                 formatted_report = MessageFormatter.format_institutional_signal(setup)
 
+                sig_id = str(uuid.uuid4())[:8]
                 signal = Signal(
-                    id=str(uuid.uuid4())[:8],
+                    id=sig_id,
                     type=sig_type_val,
                     direction=direction_val,
                     entry=setup['entry'],
@@ -115,6 +127,24 @@ class SignalEngine:
                     status=SignalStatus.ACTIVE
                 )
                 filtered.append(signal)
+
+                # Save accepted trade to SQLite database for active lifecycle tracking
+                trade_record = {
+                    'id': sig_id,
+                    'symbol': symbol_key,
+                    'direction': setup['direction'],
+                    'entry': setup['entry'],
+                    'stop_loss': setup['stop_loss'],
+                    'tp1': setup['tp1'],
+                    'tp2': setup['tp2'],
+                    'tp3': setup['tp3'],
+                    'timeframe': exec_tf.upper(),
+                    'score': setup['score'],
+                    'risk_reward': setup['risk_reward'],
+                    'status': 'OPEN',
+                    'result': 'PENDING'
+                }
+                db.save_trade(trade_record)
 
             # 3. Prevent duplicates and prune active signals (keep only last 24 hours)
             if filtered:

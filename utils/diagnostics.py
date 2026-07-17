@@ -104,3 +104,42 @@ class DiagnosticsManager:
 ━━━━━━━━━━━━━━━━━━━━
 🤖 Mustafa Bot Institutional Engine v2.5"""
         return report
+
+    def get_pipeline_audit_report(self) -> str:
+        """Generate full pipeline decision audit report showing rule breakdowns and criteria scores."""
+        from database.db_manager import DatabaseManager
+        db = DatabaseManager()
+
+        rejected = db.get_rejected_signals(10)
+        active_trades = db.get_active_trades()
+
+        rejection_reasons = {}
+        for r in rejected:
+            reason = r['reason']
+            rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+
+        rejection_summary = "\n".join([f"  • `{k}`: {v} مرات" for k, v in rejection_reasons.items()]) if rejection_reasons else "  • لا توجد حالات رفض مسجلة"
+
+        recent_logs = []
+        for r in rejected[:5]:
+            recent_logs.append(
+                f"• *{r['symbol']}* ({r['direction']})\n"
+                f"  السبب: `{r['reason']}`\n"
+                f"  النقاط: `{r['score']}/100` | RR: `1:{r['risk_reward']}`\n"
+                f"  التفاصيل: _{r['details']}_"
+            )
+        recent_text = "\n\n".join(recent_logs) if recent_logs else "لا يوجد سجل رفض مؤخراً."
+
+        report = (
+            f"🔍 *تقرير فحص وتدقيق محرك الإشارات (Signal Diagnostic Audit)*:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱️ آخر فحص: *{self.last_analysis_time or 'جاري التشغيل'}*\n"
+            f"📡 حالة الشبكة والبيانات: *{self.data_feed_status}*\n"
+            f"🟢 صفقات نشطة حالياً: *{len(active_trades)} صفقة*\n\n"
+            f"📊 *إحصائيات استبعاد الصفقات بحسب القواعد*:\n"
+            f"{rejection_summary}\n\n"
+            f"📋 *أحدث 5 عمليات فحص وتقييم مؤخراً*:\n"
+            f"{recent_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        return report

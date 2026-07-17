@@ -57,7 +57,7 @@ class SMC_ICT_ScalpStrategy(BaseScalpingStrategy):
         score = 85
         if bos_list: score += 5
         if len(analysis.get('order_blocks', [])) > 0: score += 5
-        if len(analysis.get('fvgs', [])) > 0: score += 5
+        if len(analysis.get('fair_value_gaps', [])) > 0 or len(analysis.get('fvgs', [])) > 0: score += 5
         score = min(99, score)
 
         if score < min_score:
