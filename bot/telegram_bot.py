@@ -113,6 +113,7 @@ class SignalEngine:
 
                 signal = Signal(
                     id=sig_id,
+                    symbol=symbol_key,
                     type=sig_type_val,
                     direction=direction_val,
                     order_type=order_type_obj,

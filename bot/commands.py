@@ -801,6 +801,8 @@ class BotCommands:
             setups = report.get('setups', [])
             
             valid_setup = setups[0] if setups else None
+            if valid_setup:
+                valid_setup['symbol'] = symbol_key
 
             # Fallback On-Demand SMC+ICT Setup Generator if scanner finds zero setups in current candle
             if not valid_setup:

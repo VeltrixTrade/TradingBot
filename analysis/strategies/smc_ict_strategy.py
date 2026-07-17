@@ -32,7 +32,7 @@ class SMC_ICT_ScalpStrategy(BaseScalpingStrategy):
         if df is None or len(df) < 50:
             return None
 
-        analysis = self.smc.analyze(df, timeframe)
+        analysis = self.smc.analyze(df, timeframe, symbol_key=symbol)
         setups = analysis.get('setups', [])
         if not setups:
             return None

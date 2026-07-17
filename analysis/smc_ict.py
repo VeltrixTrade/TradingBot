@@ -29,7 +29,7 @@ class SMCICTEngine:
         self.indicators = TechnicalIndicators()
         self.triple_ema = TripleEMACrossover(fast=5, medium=20, slow=50)
 
-    def analyze(self, df: pd.DataFrame, timeframe: str = 'M15') -> Dict:
+    def analyze(self, df: pd.DataFrame, timeframe: str = 'M15', symbol_key: str = 'XAU/USD') -> Dict:
         """Run complete SMC/ICT analysis."""
         if df is None or df.empty or len(df) < 30:
             logger.warning('Insufficient data for analysis')
@@ -116,12 +116,12 @@ class SMCICTEngine:
             analysis['score'] = self._calculate_overall_score(analysis)
 
             # 10. Find Setups
-            analysis['setups'] = self._find_setups(analysis, df)
+            analysis['setups'] = self._find_setups(analysis, df, symbol_key=symbol_key)
 
             # 11. Summary
             analysis['summary'] = self.generate_analysis_summary(analysis)
 
-            logger.info(f'Analysis complete: {timeframe} | Bias: {overall_bias} | Score: {analysis["score"]} | Setups: {len(analysis["setups"])}')
+            logger.info(f'Analysis complete: {symbol_key} ({timeframe}) | Bias: {overall_bias} | Score: {analysis["score"]} | Setups: {len(analysis["setups"])}')
 
             return analysis
 
@@ -261,15 +261,19 @@ class SMCICTEngine:
 
         return sorted(levels)
 
-    def _find_setups(self, analysis: Dict, df: pd.DataFrame) -> List[Dict]:
+    def _find_setups(self, analysis: Dict, df: pd.DataFrame, symbol_key: str = 'XAU/USD') -> List[Dict]:
         """Find trade setups where SMC confluences align."""
+        from config import Config
+        sym_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, {})
+        decimals = sym_info.get('decimal_places', 2)
+
         setups = []
         current_price = analysis['current_price']
         atr = analysis['indicators']['atr']
         bias = analysis['overall_bias']
 
         if atr <= 0:
-            atr = 5.0  # Default ATR for gold
+            atr = current_price * 0.002
 
         # Check each order block for confluence with FVGs and liquidity
         for ob in analysis['order_blocks']:
@@ -334,7 +338,6 @@ class SMCICTEngine:
                     confluence_count += 1
                     setup_score = min(100, setup_score + ema_boost)
                 else:
-                    # EMA contradicts direction: reduce score but don't discard
                     setup_score = max(30, setup_score - 10)
                     confluence_list.append(f'Triple EMA ({ema_reason})')
 
@@ -344,18 +347,19 @@ class SMCICTEngine:
 
                 description = (
                     f"إعداد {direction_ar} عند أوردر بلوك "
-                    f"بين {ob['bottom']:.2f} و {ob['top']:.2f} "
+                    f"بين {ob['bottom']:.{decimals}f} و {ob['top']:.{decimals}f} "
                     f"مع {confluence_count} تقاطعات: {confluences_text}"
                 )
 
                 setups.append({
+                    'symbol': symbol_key,
                     'direction': direction,
-                    'entry_zone': (ob['bottom'], ob['top']),
-                    'entry': round(entry, 2),
-                    'stop_loss': round(stop_loss, 2),
-                    'tp1': round(tp1, 2),
-                    'tp2': round(tp2, 2),
-                    'tp3': round(tp3, 2),
+                    'entry_zone': (round(ob['bottom'], decimals), round(ob['top'], decimals)),
+                    'entry': round(entry, decimals),
+                    'stop_loss': round(stop_loss, decimals),
+                    'tp1': round(tp1, decimals),
+                    'tp2': round(tp2, decimals),
+                    'tp3': round(tp3, decimals),
                     'confluence_count': confluence_count,
                     'confluence_list': confluence_list,
                     'description': description,

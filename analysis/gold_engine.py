@@ -50,7 +50,7 @@ class GoldMarketAnalysisEngine:
         tfs_analyses = {}
         for tf in tf_order:
             if tf in dataframes:
-                tfs_analyses[tf] = self.smc_engine.analyze(dataframes[tf], tf)
+                tfs_analyses[tf] = self.smc_engine.analyze(dataframes[tf], tf, symbol_key=symbol_key)
             else:
                 logger.warning(f"Timeframe {tf} data is missing.")
 
@@ -104,11 +104,8 @@ class GoldMarketAnalysisEngine:
         # ─── 6. Build setups for the execution timeframe ───
         # Execution timeframe: M15 for Scalp, H1 for Swing
         exec_tf = '15m' if signal_type == 'SCALP' else '1h'
-        exec_analysis = tfs_analyses.get(exec_tf, self.smc_engine.analyze(dataframes[exec_tf], exec_tf))
+        exec_analysis = tfs_analyses.get(exec_tf, self.smc_engine.analyze(dataframes[exec_tf], exec_tf, symbol_key=symbol_key))
         
-        setups = exec_analysis.get('setups', [])
-        institutional_setups = []
-
         setups = exec_analysis.get('setups', [])
         institutional_setups = []
 
