@@ -13,7 +13,7 @@ class MessageFormatter:
 
     @staticmethod
     def format_signal(signal: Signal) -> str:
-        """Format a clean, ultra-focused signal message with symbol, order type, entry, SL, and TPs."""
+        """Format a clean, ultra-focused signal message with symbol, order type, win rate, entry, SL, and TPs."""
         sym = getattr(signal, 'symbol', 'XAU/USD')
         decimals = 5 if ('EUR/USD' in sym or 'GBP/USD' in sym) else 3 if 'USD/JPY' in sym else 2
         price_fmt = f",.{decimals}f"
@@ -26,9 +26,12 @@ class MessageFormatter:
         else:
             order_badge = f"⚡ {order_type_str}"
 
+        conf_pct = getattr(signal, 'confidence', 80)
+
         msg = f"""🌐 *{sym}*
 ━━━━━━━━━━━━━━━━━━━━
 📈 *نوع الأمر*: `{order_badge}`
+🔥 *نسبة نجاح الصفقة*: `{conf_pct}%`
 💰 *منطقة الدخول*: `{signal.entry:{price_fmt}}`
 🛑 *وقف الخسارة*: `{signal.stop_loss:{price_fmt}}`
 🎯 *الهدف الأول*: `{signal.take_profit_1:{price_fmt}}`
@@ -39,7 +42,7 @@ class MessageFormatter:
 
     @staticmethod
     def format_institutional_signal(setup: dict) -> str:
-        """Format a clean, ultra-focused signal message with symbol, order type, entry, SL, and TPs."""
+        """Format a clean, ultra-focused signal message with symbol, order type, win rate, entry, SL, and TPs."""
         symbol = setup.get('symbol', 'XAU/USD')
         decimals = 5 if ('EUR/USD' in symbol or 'GBP/USD' in symbol) else 3 if 'USD/JPY' in symbol else 2
         price_fmt = f",.{decimals}f"
@@ -58,9 +61,12 @@ class MessageFormatter:
         else:
             order_badge = f"⚡ {order_type_str}"
 
+        conf_pct = setup.get('score', setup.get('confidence', 80))
+
         msg = f"""🌐 *{symbol}*
 ━━━━━━━━━━━━━━━━━━━━
 📈 *نوع الأمر*: `{order_badge}`
+🔥 *نسبة نجاح الصفقة*: `{conf_pct}%`
 💰 *منطقة الدخول*: `{entry_str}`
 🛑 *وقف الخسارة*: `{sl_str}`
 🎯 *الهدف الأول*: `{tp1_str}`
