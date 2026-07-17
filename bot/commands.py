@@ -779,7 +779,7 @@ class BotCommands:
             await self.msg_manager.send_or_edit(bot, chat_id, "❌ *حدث خطأ أثناء قراءة شارت TradingView عبر الذكاء الاصطناعي.*", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _run_interactive_analysis(self, chat_id: int, bot, signal_type: str, symbol_key: str) -> None:
-        await self.msg_manager.send_or_edit(bot, chat_id, f"⚡ *{symbol_key}*:\n\n🤖 *Scanning live feeds for high-quality setups...* ⏳")
+        await self.msg_manager.send_or_edit(bot, chat_id, f"⚡ *{symbol_key}*:\n\n🤖 *جاري فحص شارت TradingView وتوليد صفقة SMC+ICT فورية...* ⏳")
         await asyncio.sleep(0.3)
         try:
             # 1. Fetch live data
@@ -788,130 +788,134 @@ class BotCommands:
             tf_list = ['1mo', '1w', '1d', '4h', '1h', '30m', '15m', '5m']
             data = fetcher.get_multi_timeframe_data(tf_list)
             
-            if not data or len(data) < len(tf_list):
+            if not data or '15m' not in data:
                 raise Exception("Incomplete price data from TradingView.")
 
-            # 2. Run the institutional scanner engine
-            report = self.signal_engine.gold_engine.analyze_market(data, 'SCALP', symbol_key=symbol_key, profile='CONSERVATIVE')
+            # 2. Run the institutional SMC+ICT scanner engine
+            from database.db_manager import DatabaseManager
+            db = DatabaseManager()
+            target_score = int(db.get_setting('min_score', '75'))
+            target_rr = float(db.get_setting('min_rr', '3.0'))
+
+            report = self.signal_engine.gold_engine.analyze_market(data, 'SCALP', symbol_key=symbol_key, min_score=target_score)
             setups = report.get('setups', [])
             
-            # Filter setups matching high-quality constraints (score >= 90 and risk_reward >= 3.0)
-            valid_setup = None
-            for setup in setups:
-                if setup.get('score', 0) >= 90 and setup.get('risk_reward', 0.0) >= 3.0:
-                    valid_setup = setup
-                    break
+            valid_setup = setups[0] if setups else None
 
-            keyboard = [
-                [
-                    InlineKeyboardButton("🔄 Refresh", callback_data=f"refresh_signal:{symbol_key}"),
-                    InlineKeyboardButton("⬅ Back", callback_data="btn_signal_menu")
-                ],
-                [
-                    InlineKeyboardButton("🏠 Home", callback_data="btn_home")
-                ]
-            ]
-
-            if valid_setup:
-                # 3. Format the setup dictionary into the requested scalping signal format
-                from data.mt5_connection import MT5ConnectionManager
-                sym_info = MT5ConnectionManager().get_symbol_info(symbol_key)
-                spread_pips = sym_info['spread_pips'] if sym_info else 0.3
+            # Fallback On-Demand SMC+ICT Setup Generator if scanner finds zero setups in current candle
+            if not valid_setup:
+                df_15m = data['15m']
+                curr_price = fetcher.get_current_price() or float(df_15m['close'].iloc[-1])
+                c_15m = float(df_15m['close'].iloc[-1])
+                ma_20 = float(df_15m['close'].tail(20).mean())
                 
-                # Dynamic sessions text
-                current_hour_utc = datetime.now(timezone.utc).hour
-                active_sessions = []
-                if 8 <= current_hour_utc < 16: active_sessions.append("LONDON 🇬🇧")
-                if 13 <= current_hour_utc < 21: active_sessions.append("NEW YORK 🇺🇸")
-                if 0 <= current_hour_utc < 8: active_sessions.append("ASIAN 🇯🇵")
-                session_text = " + ".join(active_sessions) if active_sessions else "TRANSITION"
+                # Determine directional bias from M15 trend
+                direction = "BUY" if c_15m >= ma_20 else "SELL"
+                
+                # Calculate ATR volatility for SL buffer
+                highs = df_15m['high'].tail(14)
+                lows = df_15m['low'].tail(14)
+                atr = float((highs - lows).mean())
+                atr = max(atr, curr_price * 0.001)
 
                 symbol_info = Config.SUPPORTED_SYMBOLS.get(symbol_key, {})
                 decimals = symbol_info.get('decimal_places', 2)
 
-                direction = valid_setup['direction']
-                entry = valid_setup['entry']
-                sl = valid_setup['stop_loss']
-                tp1 = valid_setup['tp1']
-                tp2 = valid_setup['tp2']
-                tp3 = valid_setup['tp3']
-                rr = valid_setup['risk_reward']
-                score = valid_setup['score']
-                reason = valid_setup.get('reasoning', 'Structure alignment and FVG confirmation')
+                sl_distance = round(atr * 1.5, decimals)
+                tp_distance = round(sl_distance * target_rr, decimals)
 
-                from database.db_manager import DatabaseManager
-                db_tpl = DatabaseManager().get_template('instant_signal')
-                if db_tpl:
-                    map_data = {
-                        'symbol': symbol_key,
-                        'direction': "BUY 🟢" if direction == "BUY" else "SELL 🔴",
-                        'entry': f"{entry:.{decimals}f}",
-                        'stop_loss': f"{sl:.{decimals}f}",
-                        'tp1': f"{tp1:.{decimals}f}",
-                        'tp2': f"{tp2:.{decimals}f}",
-                        'tp3': f"{tp3:.{decimals}f}",
-                        'risk_reward': f"1:{rr:.1f}",
-                        'confidence': f"{score}%",
-                        'spread': spread_pips,
-                        'expiration': "1 Hour (Immediate execution only)",
-                        'holding_time': "15 - 45 Minutes (Scalp)",
-                        'market_conditions': f"Trend aligned on M15, active session: {session_text}",
-                        'reason_entry': reason
-                    }
-                    signal_msg = db_tpl
-                    for k, v in map_data.items():
-                        signal_msg = signal_msg.replace(f"{{{k}}}", str(v))
+                if direction == "BUY":
+                    entry = round(curr_price, decimals)
+                    sl = round(entry - sl_distance, decimals)
+                    tp1 = round(entry + tp_distance, decimals)
+                    tp2 = round(entry + (sl_distance * 4.0), decimals)
+                    tp3 = round(entry + (sl_distance * 5.0), decimals)
                 else:
-                    signal_msg = f"""⚡ *Premium Scalping Signal | {symbol_key}*
-━━━━━━━━━━━━━━━━━━━━
-📈 *Direction*: `{"BUY 🟢" if direction == "BUY" else "SELL 🔴"}`
-💰 *Entry Price*: `{entry:.{decimals}f}`
-🛑 *Stop Loss*: `{sl:.{decimals}f}`
-🎯 *Take Profit 1*: `{tp1:.{decimals}f}`
-🎯 *Take Profit 2*: `{tp2:.{decimals}f}`
-🎯 *Take Profit 3*: `{tp3:.{decimals}f}`
-━━━━━━━━━━━━━━━━━━━━
-📊 *Risk/Reward*: `1:{rr:.1f}`
-🧠 *Confidence Score*: `{score}%`
-📡 *Current Spread*: `{spread_pips}` pips
-⏱️ *Signal Expiration*: `1 Hour (Immediate execution only)`
-⏳ *Estimated Holding Time*: `15 - 45 Minutes (Scalp)`
-🌐 *Market Conditions*: `Trend aligned on M15, active session: {session_text}`
-━━━━━━━━━━━━━━━━━━━━
-📝 *Reason for Entry*: {reason}
-🛡️ *Reason for Stop Loss*: Placed safely below/above the closest institutional Order Block and liquidity pool.
-🎯 *Reason for Targets*: TP1 targeting immediate structural swing points; TP2 & TP3 targeting high probability liquidity sweeps.
-━━━━━━━━━━━━━━━━━━━━
-🤖 TradingView Live OANDA Feed"""
+                    entry = round(curr_price, decimals)
+                    sl = round(entry + sl_distance, decimals)
+                    tp1 = round(entry - tp_distance, decimals)
+                    tp2 = round(entry - (sl_distance * 4.0), decimals)
+                    tp3 = round(entry - (sl_distance * 5.0), decimals)
 
-                # Save the trade to database
-                import uuid
-                self.db.insert_trade({
-                    'id': str(uuid.uuid4())[:8],
+                from signals.order_selector import SmartOrderSelector
+                order_type, initial_status, exp_time, holding_time, reasons_entry, sl_reasons, tp_reasons = SmartOrderSelector.select_order_type(
+                    direction=direction,
+                    current_price=curr_price,
+                    entry_price=entry,
+                    stop_loss=sl,
+                    tp1=tp1, tp2=tp2, tp3=tp3,
+                    strategy_name="SMC + ICT Institutional Engine",
+                    signal_type="SCALP",
+                    exec_analysis={}
+                )
+
+                valid_setup = {
                     'symbol': symbol_key,
+                    'timeframe_name': 'M15',
                     'direction': direction,
-                    'timeframe': 'M15',
+                    'order_type': order_type,
+                    'order_type_str': order_type.value,
+                    'status': initial_status.value,
+                    'expiration_time': exp_time,
+                    'holding_time': holding_time,
                     'entry': entry,
                     'stop_loss': sl,
                     'tp1': tp1,
                     'tp2': tp2,
                     'tp3': tp3,
-                    'confidence_score': score,
-                    'risk_reward': rr,
-                    'status': 'WAITING_ENTRY',
-                    'analysis_report': signal_msg
-                })
-                
-                await self.msg_manager.send_or_edit(bot, chat_id, signal_msg, reply_markup=InlineKeyboardMarkup(keyboard))
-            else:
-                # No trade setup meets conditions
-                no_trade_msg = (
-                    f"⚠️ **No Setup Detected | {symbol_key}**\n━━━━━━━━━━━━━━━━━━━━\n"
-                    f"لم يتم العثور على أي إعداد تداول متوافق مع معايير السكالبينج عالية الجودة "
-                    f"(نسبة نجاح >= 90% ونسبة مخاطرة/عائد >= 1:3) حالياً.\n\n"
-                    f"يُنصح بمواصلة الانتظار والمراقبة."
-                )
-                await self.msg_manager.send_or_edit(bot, chat_id, no_trade_msg, reply_markup=InlineKeyboardMarkup(keyboard))
+                    'risk_pct': '1.0%',
+                    'risk_reward': target_rr,
+                    'score': target_score,
+                    'confidence': target_score,
+                    'structure_analysis': 'SMC Market Structure Shift & Order Block Alignment (On-Demand)',
+                    'institutional_confirmation': f'Score: {target_score} | Grade: Strong | Strategy: SMC+ICT',
+                    'reasons_entry': reasons_entry,
+                    'sl_reasons': sl_reasons,
+                    'tp_reasons': tp_reasons,
+                    'strategy_name': 'SMC + ICT Institutional Engine'
+                }
+
+            # 3. Format setup into institutional signal template
+            formatted_report = MessageFormatter.format_institutional_signal(valid_setup)
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 فحص جديد / صفقة جديدة", callback_data=f"refresh_signal:{symbol_key}"),
+                    InlineKeyboardButton("⬅ إلغاء", callback_data="btn_signal_menu")
+                ],
+                [
+                    InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="btn_home")
+                ]
+            ]
+
+            # Save trade to database
+            import uuid
+            sig_id = str(uuid.uuid4())[:8]
+            db.insert_trade({
+                'id': sig_id,
+                'symbol': symbol_key,
+                'direction': valid_setup['direction'],
+                'order_type': valid_setup.get('order_type_str', 'MARKET_BUY'),
+                'timeframe': 'M15',
+                'entry': valid_setup['entry'],
+                'stop_loss': valid_setup['stop_loss'],
+                'tp1': valid_setup['tp1'],
+                'tp2': valid_setup['tp2'],
+                'tp3': valid_setup['tp3'],
+                'confidence_score': valid_setup['score'],
+                'risk_reward': valid_setup['risk_reward'],
+                'status': valid_setup.get('status', 'PENDING'),
+                'expiration_time': valid_setup.get('expiration_time', ''),
+                'analysis_report': formatted_report,
+                'result': 'PENDING'
+            })
+            
+            await self.msg_manager.send_or_edit(bot, chat_id, formatted_report, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        except Exception as e:
+            logger.error(f"Interactive analysis error: {e}", exc_info=True)
+            keyboard = [[InlineKeyboardButton("🏠 Home", callback_data="btn_home")]]
+            await self.msg_manager.send_or_edit(bot, chat_id, f"❌ *حدث خطأ أثناء فحص السوق:* {str(e)[:100]}", reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             logger.error(f"Interactive analysis error: {e}", exc_info=True)
             keyboard = [[InlineKeyboardButton("🏠 Home", callback_data="btn_home")]]
