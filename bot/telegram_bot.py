@@ -340,20 +340,25 @@ class MustafaBot:
             logger.error(f"Error publishing fast scanner signal: {e}")
 
     async def on_trade_lifecycle_update(self, trade: dict, old_status: str, new_status: str, price: float, notes: str) -> None:
-        """Broadcast trade lifecycle updates to public channel or active subscribers."""
+        """Broadcast clean trade lifecycle updates (Entry, TP1, TP2, TP3, SL) to active subscribers."""
         try:
-            dir_icon = '🟢 BUY' if trade['direction'] == 'BUY' else '🔴 SELL'
-            msg = (
-                f"📢 *تحديث حالة الصفقة الفعالة* | `{trade['id']}`\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌐 الرمز: *{trade['symbol']}* ({trade['timeframe']})\n"
-                f"📈 النوع: {dir_icon} @ `{trade['entry']}`\n"
-                f"🔄 التحديث: *{old_status}* ➔ *{new_status}*\n"
-                f"💰 السعر الحالي: `{price:.4f}`\n"
-                f"📝 البيان: {notes}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🤖 Mustafa Bot Trade Lifecycle Engine"
-            )
+            symbol = trade['symbol']
+            
+            if new_status == 'TP1_HIT':
+                msg = f"🎯 *تحقيق الهدف الأول (TP1)* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n💰 *السعر الحالي*: `{price:.4f}`\n🛡️ *تنبيه الخطة*: تم تحريك حد الوقف إلى سعر الدخول تلقائياً (Break-Even)."
+            elif new_status == 'TP2_HIT':
+                msg = f"🎯 *تحقيق الهدف الثاني (TP2)* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n💰 *السعر الحالي*: `{price:.4f}`"
+            elif new_status == 'TP3_HIT':
+                msg = f"🏁 *تحقيق الهدف الثالث الكامل (TP3)* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n💰 *السعر الحالي*: `{price:.4f}`\n✅ اكتملت الصفقة بنجاح كاسح وحققت كافة الأهداف!"
+            elif new_status == 'SL_HIT':
+                msg = f"🛑 *إصابة حد وقف الخسارة (SL)* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n💰 *السعر الحالي*: `{price:.4f}`"
+            elif new_status in ['ENTRY_EXECUTED', 'ACTIVE']:
+                msg = f"⚡ *تفعيل أمر الصفقة* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n💰 *سعر التفعيل*: `{price:.4f}`"
+            elif new_status in ['CANCELLED_INVALIDATED', 'EXPIRED']:
+                msg = f"🚫 *إلغاء الأمر المعلق* | *{symbol}*\n━━━━━━━━━━━━━━━━━━━━\n📝 *البيان*: {notes}"
+            else:
+                return
+
             await self.broadcast_signal_to_users(msg)
         except Exception as e:
             logger.error(f"Error sending trade lifecycle notification: {e}")
@@ -368,18 +373,26 @@ class MustafaBot:
             logger.error(f'Error sending signal: {e}')
 
     async def scheduled_analysis(self) -> None:
-        """Run scheduled analysis and send signals if found for all symbols."""
+        """Run scheduled analysis and send signals if found for symbols without active trades."""
         if self._analysis_running:
             return
 
         self._analysis_running = True
 
         try:
-            # 24/7 Continuous scanning (bypass is_kill_zone)
             kill_zone = AnalysisScheduler.get_active_kill_zone() or "None (Continuous Scan)"
             logger.info(f'⏰ Running scheduled analysis (Kill Zone: {kill_zone})')
 
+            from database.db_manager import DatabaseManager
+            db = DatabaseManager()
+            active_trades = db.get_active_trades()
+            active_symbols = {t['symbol'] for t in active_trades}
+
             async def analyze_and_publish(sym_key):
+                if sym_key in active_symbols:
+                    logger.info(f"⏳ Skipping scheduled scan for {sym_key} (Active trade already managed)")
+                    return
+
                 # Run scalp analysis
                 scalp_signals = await self.engine.run_analysis('SCALP', symbol_key=sym_key)
                 for signal in scalp_signals:

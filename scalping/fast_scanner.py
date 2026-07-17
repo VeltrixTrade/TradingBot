@@ -172,18 +172,26 @@ class FastMarketScanner:
                 self.diagnostics.update_last_analysis_time()
 
                 if setups:
-                    # First high-quality opportunity wins!
                     top_setup = setups[0]
-                    logger.info(f"🚀 Scanner WINNER setup found: {top_setup['symbol']} ({top_setup['strategy_name']}) - Score: {top_setup['score']}")
+                    sym = top_setup['symbol']
 
-                    if self.notification_callback:
-                        try:
-                            if asyncio.iscoroutinefunction(self.notification_callback):
-                                await self.notification_callback(top_setup)
-                            else:
-                                self.notification_callback(top_setup)
-                        except Exception as cb_err:
-                            logger.error(f"Error in scanner notification callback: {cb_err}")
+                    # Intelligent Trade Capacity Gate: Prevent duplicate signal spamming for active symbols!
+                    from database.db_manager import DatabaseManager
+                    db = DatabaseManager()
+                    active_trades = db.get_active_trades()
+                    has_active_trade = any(t['symbol'] == sym for t in active_trades)
+
+                    if not has_active_trade:
+                        logger.info(f"🚀 Scanner WINNER setup found: {sym} ({top_setup['strategy_name']}) - Score: {top_setup['score']}")
+
+                        if self.notification_callback:
+                            try:
+                                if asyncio.iscoroutinefunction(self.notification_callback):
+                                    await self.notification_callback(top_setup)
+                                else:
+                                    self.notification_callback(top_setup)
+                            except Exception as cb_err:
+                                logger.error(f"Error in scanner notification callback: {cb_err}")
 
             except Exception as e:
                 logger.error(f"Error in continuous scanner loop: {e}", exc_info=True)
