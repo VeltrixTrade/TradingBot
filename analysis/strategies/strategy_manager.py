@@ -9,27 +9,17 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from analysis.strategies.smc_ict_strategy import SMC_ICT_ScalpStrategy
-from analysis.strategies.price_action_strategy import PriceAction_ScalpStrategy
-from analysis.strategies.liquidity_sweep_strategy import LiquiditySweep_ScalpStrategy
-from analysis.strategies.breakout_strategy import Breakout_ScalpStrategy
-from analysis.strategies.momentum_pullback_strategy import MomentumPullback_ScalpStrategy
-from analysis.strategies.triple_ema_strategy import TripleEMA_ScalpStrategy
 from config import Config
 
 logger = logging.getLogger('mustafa_bot.analysis.strategies.strategy_manager')
 
 
 class ParallelStrategyManager:
-    """Orchestrator for running multiple independent scalping strategies concurrently."""
+    """Orchestrator for running pure SMC + ICT Institutional Strategy exclusively."""
 
     def __init__(self):
         self.strategies = [
-            SMC_ICT_ScalpStrategy(),
-            PriceAction_ScalpStrategy(),
-            LiquiditySweep_ScalpStrategy(),
-            Breakout_ScalpStrategy(),
-            MomentumPullback_ScalpStrategy(),
-            TripleEMA_ScalpStrategy()
+            SMC_ICT_ScalpStrategy()
         ]
 
     async def _evaluate_single(

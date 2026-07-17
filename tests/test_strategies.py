@@ -92,12 +92,7 @@ class TestTradingStrategies(unittest.TestCase):
         cls.tfs_ema = {'15m': df_ema, '1h': df_ema, '4h': df_ema, '1d': df_ema}
 
         cls.strategies = [
-            SMC_ICT_ScalpStrategy(),
-            PriceAction_ScalpStrategy(),
-            LiquiditySweep_ScalpStrategy(),
-            Breakout_ScalpStrategy(),
-            MomentumPullback_ScalpStrategy(),
-            TripleEMA_ScalpStrategy()
+            SMC_ICT_ScalpStrategy()
         ]
 
     def test_all_strategies_evaluation(self):
