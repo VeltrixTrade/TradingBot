@@ -302,46 +302,67 @@ class MustafaBot:
         self.chat_id = Config.CHAT_ID
         self._analysis_running = False
 
+    async def broadcast_signal_to_users(self, msg_text: str) -> None:
+        """Broadcast signal to main channel and all active registered Telegram bot users."""
+        if not self.app:
+            return
+
+        sent_chats = set()
+
+        # 1. Main Channel or Configured Chat ID
+        if self.chat_id and str(self.chat_id).strip() not in ('0', ''):
+            try:
+                await self.app.bot.send_message(chat_id=self.chat_id, text=msg_text, parse_mode="Markdown")
+                sent_chats.add(str(self.chat_id))
+            except Exception as e:
+                logger.error(f"Error sending signal to main chat_id {self.chat_id}: {e}")
+
+        # 2. All Registered Active Bot Users
+        from database.db_manager import DatabaseManager
+        users = DatabaseManager().get_active_users()
+        for u in users:
+            cid_str = str(u['chat_id'])
+            if cid_str not in sent_chats:
+                try:
+                    await self.app.bot.send_message(chat_id=u['chat_id'], text=msg_text, parse_mode="Markdown")
+                    sent_chats.add(cid_str)
+                except Exception as u_err:
+                    logger.warning(f"Failed to broadcast signal to user {cid_str}: {u_err}")
+
     async def on_fast_scanner_signal(self, setup: dict) -> None:
-        """Broadcast instant winning scalping setup immediately."""
+        """Broadcast instant winning scalping setup immediately to all users."""
         try:
-            if self.app and self.chat_id:
-                msg = MessageFormatter.format_institutional_signal(setup)
-                await self.app.bot.send_message(chat_id=self.chat_id, text=msg, parse_mode="Markdown")
-                logger.info(f"⚡ Instant Scalper Signal published: {setup['symbol']} ({setup.get('strategy_name')})")
+            msg = MessageFormatter.format_institutional_signal(setup)
+            await self.broadcast_signal_to_users(msg)
+            logger.info(f"⚡ Instant Scalper Signal published to users: {setup['symbol']} ({setup.get('strategy_name')})")
         except Exception as e:
             logger.error(f"Error publishing fast scanner signal: {e}")
 
     async def on_trade_lifecycle_update(self, trade: dict, old_status: str, new_status: str, price: float, notes: str) -> None:
         """Broadcast trade lifecycle updates to public channel or active subscribers."""
         try:
-            if self.app and self.chat_id:
-                dir_icon = '🟢 BUY' if trade['direction'] == 'BUY' else '🔴 SELL'
-                msg = (
-                    f"📢 *تحديث حالة الصفقة الفعالة* | `{trade['id']}`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🌐 الرمز: *{trade['symbol']}* ({trade['timeframe']})\n"
-                    f"📈 النوع: {dir_icon} @ `{trade['entry']}`\n"
-                    f"🔄 التحديث: *{old_status}* ➔ *{new_status}*\n"
-                    f"💰 السعر الحالي: `{price:.4f}`\n"
-                    f"📝 البيان: {notes}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🤖 Mustafa Bot Trade Lifecycle Engine"
-                )
-                await self.app.bot.send_message(chat_id=self.chat_id, text=msg, parse_mode="Markdown")
+            dir_icon = '🟢 BUY' if trade['direction'] == 'BUY' else '🔴 SELL'
+            msg = (
+                f"📢 *تحديث حالة الصفقة الفعالة* | `{trade['id']}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌐 الرمز: *{trade['symbol']}* ({trade['timeframe']})\n"
+                f"📈 النوع: {dir_icon} @ `{trade['entry']}`\n"
+                f"🔄 التحديث: *{old_status}* ➔ *{new_status}*\n"
+                f"💰 السعر الحالي: `{price:.4f}`\n"
+                f"📝 البيان: {notes}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🤖 Mustafa Bot Trade Lifecycle Engine"
+            )
+            await self.broadcast_signal_to_users(msg)
         except Exception as e:
             logger.error(f"Error sending trade lifecycle notification: {e}")
 
     async def send_signal(self, signal: Signal) -> None:
-        """Send a signal to the configured chat."""
+        """Send a signal to the configured chat and active users."""
         try:
-            if self.app and self.chat_id:
-                msg = MessageFormatter.format_signal(signal)
-                await self.app.bot.send_message(
-                    chat_id=self.chat_id,
-                    text=msg,
-                )
-                logger.info(f'📤 Signal {signal.id} sent to {self.chat_id}')
+            msg = MessageFormatter.format_signal(signal)
+            await self.broadcast_signal_to_users(msg)
+            logger.info(f'📤 Signal {signal.id} broadcasted successfully.')
         except Exception as e:
             logger.error(f'Error sending signal: {e}')
 

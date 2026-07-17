@@ -159,6 +159,11 @@ class DatabaseManager:
                 );
                 """)
 
+                # Seed default min_score (75%) and min_rr (1:3) if not set
+                cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('min_score', '75')")
+                cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('min_rr', '3.0')")
+                cursor.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('max_spread', '5.0')")
+
                 conn.commit()
                 logger.info("💾 Database schema initialized successfully")
         except Exception as e:
